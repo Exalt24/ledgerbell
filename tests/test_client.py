@@ -87,3 +87,20 @@ def test_bars_follow_next_page_token_until_every_symbol_is_complete():
         assert {s: len(b) for s, b in bars.items()} == {s: 60 for s in symbols}
     finally:
         srv.shutdown()
+
+
+def test_bars_request_always_carries_a_start_far_enough_back_because_the_default_is_today_only(cfg, server):
+    seen = {}
+    c = AlpacaClient(cfg, standin.KEY, standin.SECRET)
+    real = c._call
+
+    def spy(method, url, **kw):
+        seen.update(kw.get("params") or {})
+        return real(method, url, **kw)
+
+    c._call = spy
+    from datetime import UTC, datetime
+
+    bars = c.daily_bars(["AAPL"], limit=25, now=datetime(2026, 11, 9, tzinfo=UTC))
+    assert seen["start"] == "2026-09-20"  # 25 * 1.6 + 10 = 50 days back
+    assert len(bars["AAPL"]) == 25

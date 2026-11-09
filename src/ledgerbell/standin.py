@@ -152,16 +152,17 @@ class Book:
                 self._fill(o["symbol"], "sell", int(o["qty"]))
                 o["status"] = "filled"
 
-    def page_of_bars(self, symbols: list[str], limit: int, token: str | None) -> dict:
-        flat = [(s, b) for s in sorted(symbols) for b in self.bars.get(s, [])]
-        start = int(token) if token else 0
+    def page_of_bars(self, symbols: list[str], limit: int, token: str | None, start: str | None = None) -> dict:
+        # like the real API, a request with no start only sees the current day, which holds no daily bar yet
+        flat = [(s, b) for s in sorted(symbols) for b in self.bars.get(s, []) if start and b["t"][:10] >= start]
+        offset = int(token) if token else 0
         size = min(limit, self.page_cap)
-        chunk = flat[start:start + size]
+        chunk = flat[offset:offset + size]
         bars: dict[str, list[dict]] = {}
         for s, b in chunk:
             bars.setdefault(s, []).append(b)
-        more = start + size < len(flat)
-        return {"bars": bars, "next_page_token": str(start + size) if more else None}
+        more = offset + size < len(flat)
+        return {"bars": bars, "next_page_token": str(offset + size) if more else None}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -214,7 +215,7 @@ class Handler(BaseHTTPRequestHandler):
                 status, payload = b.place(self._body())
                 return self._send(status, payload)
             if method == "GET" and url.path == "/v2/stocks/bars":
-                return self._send(200, b.page_of_bars(q.get("symbols", "").split(","), int(q.get("limit", 1000)), q.get("page_token")))
+                return self._send(200, b.page_of_bars(q.get("symbols", "").split(","), int(q.get("limit", 1000)), q.get("page_token"), q.get("start")))
         self._send(404, {"message": "not found"})
 
     def _control(self, method: str, path: str, b: Book) -> None:

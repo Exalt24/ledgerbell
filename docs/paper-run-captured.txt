@@ -1,0 +1,34 @@
+# Real Alpaca paper account, Monday 9 November 2026 evening (market closed). No real money. The account id and keys are not shown.
+
+$ python scripts/paper_check.py
+account: equity 100000.00, cash 100000.00, buying power 400000.00, blocked False
+clock: is_open False, next_open 2026-11-09T09:30:00-05:00
+positions: 0, open orders: 0
+bars SPY: 25 daily bars, last close 735.4 on 2026-11-06
+bars AAPL: 25 daily bars, last close 342.41 on 2026-11-06
+entry order: status pending_new, class oto, legs 1
+open orders after the entry: [('SPY', 'buy', 'market', 'new')]
+same client_order_id again: refused as expected (alpaca 422: client_order_id must be unique)
+cancel all: 1 orders cancelled
+close all: 0 positions closed
+after: positions 0, open orders 0
+
+$ ledgerbell status
+equity 100000.00  day +0.00 (+0.00%)  cash 100000.00
+kill switch: off
+
+$ ledgerbell run premarket
+premarket: done: ...
+  ...
+  equity 100000.00, day change +0.00 (+0.00%), cash 100000.00
+  Held: no open positions
+  No orders suggested.
+
+$ ledgerbell run open --no-model
+open: skipped: market is closed
+
+$ ledgerbell run eod --no-model
+eod: done: recap sent
+  equity 100000.00, day change +0.00 (+0.00%), cash 100000.00
+  Held: no open positions
+  Today: 0 orders sent, 0 refused by the risk rules, 0 rejected by the broker, kill switch off.

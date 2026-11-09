@@ -8,6 +8,7 @@ match the configured mode, so a paper config can never reach the live endpoint.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from urllib.parse import urlparse
 
 import requests
@@ -125,10 +126,16 @@ class AlpacaClient:
     def open_orders(self) -> list[dict]:
         return self._call("GET", self._t("/v2/orders"), params={"status": "open", "limit": 100, "nested": "true"})
 
-    def daily_bars(self, symbols: list[str], limit: int = 60) -> dict[str, list[dict]]:
-        """Daily bars, oldest first, following next_page_token until every symbol has its bars."""
+    def daily_bars(self, symbols: list[str], limit: int = 60, now: datetime | None = None) -> dict[str, list[dict]]:
+        """Daily bars, oldest first, following next_page_token until every symbol has its bars.
+
+        Alpaca's `start` defaults to the beginning of the current day, which for daily bars means no history,
+        so a start far enough back to hold `limit` trading days (weekends and holidays included) is always sent.
+        """
         out: dict[str, list[dict]] = {s: [] for s in symbols}
+        start = ((now or datetime.now(UTC)) - timedelta(days=int(limit * 1.6) + 10)).strftime("%Y-%m-%d")
         params = {
+            "start": start,
             "symbols": ",".join(symbols),
             "timeframe": "1Day",
             "limit": limit * len(symbols),

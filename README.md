@@ -68,7 +68,7 @@ pip install -e ".[dev]"
 python scripts/demo.py
 ```
 
-The last line runs a whole made-up day and prints it. For your own paper account:
+The last line runs a whole made-up day and prints it. For your own paper account (keys come from the Alpaca dashboard; `python scripts/paper_check.py` is a harmless first run that cancels what it places):
 
 ```
 cp config.example.toml config.toml
@@ -82,15 +82,19 @@ ledgerbell status
 ## Tests
 
 ```
-python -m pytest              # 102 tests, about 26 seconds
+python -m pytest              # 103 tests, about 26 seconds
 python scripts/mutants.py     # removes one guard at a time in a temp copy
 ```
 
-The tests drive the real client over HTTP against the test server: orders with stops, a duplicate order id, a 401, paging through bars, stops firing on a moving tape, the loss limit tripping the kill switch, a broker that is down while the kill switch engages, alerts to a real local webhook, and the command line end to end. The mutation run breaks 26 guards one at a time (each risk rule, the kill file written first, the paper host check, the kill blocking routines, yesterday's plan never replayed, HTML escaping and more): 26 caught, 0 survived, 0 stale anchors.
+The tests drive the real client over HTTP against the test server, which is written from Alpaca's public documentation: orders with stops, a duplicate order id, a 401, paging through bars, stops firing on a moving tape, the loss limit tripping the kill switch, a broker that is down while the kill switch engages, alerts to a real local webhook, and the command line end to end. The mutation run breaks 26 guards one at a time (each risk rule, the kill file written first, the paper host check, the kill blocking routines, yesterday's plan never replayed, HTML escaping and more): 26 caught, 0 survived, 0 stale anchors.
+
+## Run against a real Alpaca paper account
+
+On a Monday evening with the market closed, `scripts/paper_check.py` and the routines ran against a real Alpaca paper account ([captured output](docs/paper-run-captured.txt)): account, clock and daily bars from the free IEX feed, a one share entry with an attached stop accepted as a queued OTO order, the same `client_order_id` refused a second time with a 422, cancel all and close all, then `premarket` with the real model on real prices, `open` skipping because the market was closed, and `eod`. That run found a bug the test server had hidden: Alpaca's bars `start` defaults to the beginning of today, so daily bars came back empty until the client sent a start date. The test server now behaves the same way and a test pins it.
 
 ## Limits
 
-* The client was written from Alpaca's public documentation and tested against a local test server with made-up prices. It has not been run against an Alpaca paper account, so field names and edge cases that only the live API shows are untested.
+* Nothing has traded in market hours yet. A fill, a stop firing at the broker, the kill switch closing live positions and the daily loss limit on a real account are tested against the local test server only, and the 60 to 90 days of paper running the work is meant for have not been done.
 * The test server fills market orders at its own price and fires stops at the next price it is given. It does not model slippage, partial fills, fees or the market calendar.
 * Whole shares only, long only, US stocks. Options and crypto are not covered.
 * Market holidays are handled by asking Alpaca's clock, not by a calendar here.
