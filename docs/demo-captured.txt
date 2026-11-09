@@ -1,0 +1,38 @@
+
+== 08:00 premarket: the model reads the account and the tape
+    [text alert] Pre-market briefing
+premarket: done: Index funds sit above their 20 day average and the two tech names are drifting down. Nothing unusual before the open.
+    Index funds sit above their 20 day average and the two tech names are drifting down. Nothing unusual before the open.
+    equity 100000.00, day change +0.00 (+0.00%), cash 100000.00
+    Held: no open positions
+    Suggested orders (they still go through the risk rules at the open):
+      buy 4 QQQ: closing above its 20 day average
+
+== 09:35 open: the plan and the rule go through the risk rules, every entry gets a stop
+    [text alert] Market open
+open: done: 4 proposals considered at the open
+    buy 4 QQQ (agent) sent
+    buy 4 SPY (strategy) sent
+    buy 13 AAPL (strategy) sent
+
+== 12:00 midday: loss limit check, stop audit, scan
+midday: done: 0 positions near their stop
+
+== 16:15 eod: recap and dashboard
+    [text alert] End of day recap
+eod: done: recap sent
+    equity 100000.00, day change +0.00 (+0.00%), cash 93650.00
+    Held: QQQ 4 at 450.00 (+0.0%); SPY 4 at 520.00 (+0.0%); AAPL 13 at 190.00 (+0.0%)
+    Today: 3 orders sent, 0 refused by the risk rules, 0 rejected by the broker, kill switch off.
+
+== next day: the market drops 40 percent in every name held
+    [text alert] KILL SWITCH ENGAGED
+midday: done: daily loss limit hit, kill switch engaged
+    kill switch engaged: True  reason: daily loss limit hit: equity 97460.00 vs 100000.00 at yesterday's close (-2.54%, limit 2.0%)
+
+== the next open is refused while the kill switch is engaged
+open: skipped: kill switch is engaged
+
+== what is left in the account and in the ledger
+    positions: []  open orders: 0
+    ledger events: kill_engaged, order_submitted, plan_saved, recap, routine_done, routine_start, scan_done, skipped

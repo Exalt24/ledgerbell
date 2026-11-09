@@ -1,0 +1,12 @@
+# The five routines on the New York market clock. CRON_TZ is honoured by cronie and Vixie cron on Linux,
+# so the lines stay right when the US clocks change. Run from the repository folder with the keys in the
+# environment (a systemd EnvironmentFile or a 0600 file sourced here).
+CRON_TZ=America/New_York
+APCA_ENV=/etc/ledgerbell.env
+
+# Weekdays only. The routines ask Alpaca's clock themselves, so a market holiday logs a skip and does nothing.
+ 0  8 * * 1-5  . $APCA_ENV && ledgerbell run premarket   # pre-market research and briefing
+35  9 * * 1-5  . $APCA_ENV && ledgerbell run open        # market open: the plan and the rule through the risk rules
+ 0 12 * * 1-5  . $APCA_ENV && ledgerbell run midday      # loss limit, stop audit, scan
+15 16 * * 1-5  . $APCA_ENV && ledgerbell run eod         # recap, dashboard
+ 0 18 * * 5    . $APCA_ENV && ledgerbell run weekly      # weekly review

@@ -1,0 +1,39 @@
+
+== 08:00 premarket: the model reads the account and the tape
+    [text alert] Pre-market briefing
+premarket: done: SPY and QQQ are in steady uptrends, with SPY near 520 and QQQ flat on the last day after a run higher. AAPL is also climbing, up about 4% over the 10 days, while MSFT and NVDA are drifting lower. The account is all cash, so a small, diversified entry into the strength is reasonable.
+    SPY and QQQ are in steady uptrends, with SPY near 520 and QQQ flat on the last day after a run higher. AAPL is also climbing, up about 4% over the 10 days, while MSFT and NVDA are drifting lower. The account is all cash, so a small, diversified entry into the strength is reasonable.
+    equity 100000.00, day change +0.00 (+0.00%), cash 100000.00
+    Held: no open positions
+    Suggested orders (they still go through the risk rules at the open):
+      buy 15 SPY: Broad-market uptrend, with 8 of the last 9 closes higher, makes a modest core position sensible.
+      buy 25 AAPL: AAPL has risen almost every day over the window and is the only single stock here with clear upward momentum.
+
+== 09:35 open: the plan and the rule go through the risk rules, every entry gets a stop
+    [text alert] Market open
+open: done: 5 proposals considered at the open
+    buy 15 SPY (agent) sent
+    buy 25 AAPL (agent) sent
+    buy 5 QQQ (strategy) sent
+
+== 12:00 midday: loss limit check, stop audit, scan
+midday: done: 0 positions near their stop
+
+== 16:15 eod: recap and dashboard
+    [text alert] End of day recap
+eod: done: recap sent
+    equity 100000.00, day change +0.00 (+0.00%), cash 88320.00
+    Held: SPY 9 at 520.00 (+0.0%); AAPL 25 at 190.00 (+0.0%); QQQ 5 at 450.00 (+0.0%)
+    Today: 3 orders sent, 0 refused by the risk rules, 0 rejected by the broker, kill switch off.
+
+== next day: the market drops 40 percent in every name held
+    [text alert] KILL SWITCH ENGAGED
+midday: done: daily loss limit hit, kill switch engaged
+    kill switch engaged: True  reason: daily loss limit hit: equity 95328.00 vs 100000.00 at yesterday's close (-4.67%, limit 2.0%)
+
+== the next open is refused while the kill switch is engaged
+open: skipped: kill switch is engaged
+
+== what is left in the account and in the ledger
+    positions: []  open orders: 0
+    ledger events: kill_engaged, order_submitted, plan_saved, recap, routine_done, routine_start, scan_done, skipped

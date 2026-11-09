@@ -1,0 +1,31 @@
+# Copy to config.toml. API keys are never written here: set APCA_API_KEY_ID and APCA_API_SECRET_KEY
+# in the environment (trade-only keys for the paper account).
+
+timezone = "America/New_York"
+
+[alpaca]
+mode = "paper"                          # paper, live (also needs live_confirmed = true) or standin
+base_url = "https://paper-api.alpaca.markets"
+data_url = "https://data.alpaca.markets"
+feed = "iex"                            # the free data feed
+
+[risk]
+max_position_pct = 5.0                  # one symbol may hold at most this share of equity
+max_open_positions = 5
+daily_loss_limit_pct = 2.0              # down this much since yesterday's close: flatten, then stop
+stop_loss_pct = 3.0                     # every entry carries a stop this far under the fill
+entry_pct = 2.5                         # the size the example rule asks for (never above max_position_pct)
+
+[strategy]
+watchlist = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA"]
+sma_days = 20
+
+[alerts]
+email_to = ""                           # leave empty to turn email off
+email_from = ""
+smtp_host = ""
+smtp_port = 587
+webhook_url = ""                        # a Slack style incoming webhook, for text alerts
+
+[paths]
+state_dir = "state"                     # ledger.jsonl, plan.json, KILL, dashboard.html
