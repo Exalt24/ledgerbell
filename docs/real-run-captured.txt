@@ -1,0 +1,65 @@
+Real run, Monday 2026-11-09 during market hours, against the real Alpaca paper account, the real Finnhub free API and the real Airtable API.
+Commands: python -m ledgerbell.cli --config <config with options, finnhub and airtable on> run premarket|open|midday|eod --no-model, then status and kill.
+
+== Finnhub (free key), through ledgerbell.marketdata.FinnhubData
+quote AAPL 350.12 prev 342.37 high 351.42 low 344.78 time 2026-11-09 18:47:42+00:00
+quote SPY 753.1
+quote MSFT 544.19
+unknown symbol: finnhub 404: no quote for NOPE123
+candles: finnhub 403: You don't have access to this resource.
+
+== ledgerbell quote AAPL with provider = finnhub
+AAPL 350.12 from finnhub  (+2.26% on the previous close 342.37)
+
+== run premarket
+premarket: done: Model research is off: no runner configured.
+  Model research is off: no runner configured.
+  equity 99993.90, day change -6.10 (-0.01%), cash 99993.90
+  Held: no open positions
+  No orders suggested.
+== run open
+open: done: 4 proposals considered at the open
+  buy 7 AAPL (strategy) sent
+  buy 4 MSFT (strategy) sent
+  buy 2 AAPL261116C00350000 (strategy) sent
+  buy 1 MSFT261116C00542500 (strategy) refused: option premium limit leaves no room for MSFT261116C00542500 at up to 9.68 a share
+== run midday
+midday: done: 1 positions near their stop
+  AAPL261116C00350000 is -7.4% down, halfway to its stop
+== run eod
+eod: done: recap sent
+  equity 99923.67, day change -76.33 (-0.08%), cash 94417.38
+  Held: AAPL 7 at 350.04 (-0.0%); AAPL261116C00350000 2 at 4.75 (-7.4%); MSFT 4 at 544.04 (-0.0%)
+  Today: 3 orders sent, 1 refused by the risk rules, 0 rejected by the broker, kill switch off.
+== run midday again after the fix
+midday: done: 0 positions near their stop
+== status before the kill
+equity 99925.83  day -74.17 (-0.07%)  cash 94417.38
+  AAPL 7 @ 350.04  now 350.28  +0.07%
+  AAPL261116C00350000 2 @ 4.75  now 4.40  -7.37%
+  MSFT 4 @ 544.04  now 544.07  +0.01%
+kill switch: off
+== kill
+kill switch engaged
+== status after the kill
+equity 99925.65  day -74.35 (-0.07%)  cash 99381.52
+  MSFT 1 @ 544.04  now 544.12  +0.01%
+kill switch: ENGAGED, end of the options and run log check
+
+== ledger lines about the provider and the run log
+2026-11-09T18:46:23+00:00 data provider_fallback {"error": "finnhub 403: You don't have access to this resource.", "provider": "finnhub"}
+2026-11-09T18:46:27+00:00 premarket runlog_written {"record_id": "recfomOaIJyn5OjaF"}
+2026-11-09T18:46:30+00:00 data provider_fallback {"error": "finnhub 403: You don't have access to this resource.", "provider": "finnhub"}
+2026-11-09T18:46:41+00:00 open runlog_written {"record_id": "rec3y3SASvnJJtOlM"}
+2026-11-09T18:46:44+00:00 midday runlog_written {"record_id": "recyRFHJDeL9uZVhh"}
+2026-11-09T18:46:47+00:00 eod runlog_written {"record_id": "rec33K8yvVFPkRdTa"}
+2026-11-09T18:47:39+00:00 midday runlog_written {"record_id": "recGNiRBBDovFSAaM"}
+
+== the Airtable table read back through its REST API
+5 rows in the table
+recfomOaIJyn5OjaF | premarket | 2026-11-09T18:46:21.000Z | done | suggested 0 | placed 0 | refused 0 | paper | Model research is off: no runner configured.
+rec3y3SASvnJJtOlM | open | 2026-11-09T18:46:28.000Z | done | suggested 4 | placed 3 | refused 1 | paper | 4 proposals considered at the open
+recyRFHJDeL9uZVhh | midday | 2026-11-09T18:46:41.000Z | done | suggested 0 | placed 0 | refused 0 | paper | 1 positions near their stop
+rec33K8yvVFPkRdTa | eod | 2026-11-09T18:46:45.000Z | done | suggested 4 | placed 3 | refused 1 | paper | recap sent
+recGNiRBBDovFSAaM | midday | 2026-11-09T18:47:36.000Z | done | suggested 0 | placed 0 | refused 0 | paper | 0 positions near their stop
+read back one record by id: {"Summary": "4 proposals considered at the open", "Mode": "paper", "Run at": "2026-11-09T18:46:28.000Z", "Orders placed": 3, "Orders suggested": 4, "Orders refused": 1, "Routine": "open", "Status": "done"}

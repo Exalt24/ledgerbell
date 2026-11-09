@@ -29,3 +29,21 @@ webhook_url = ""                        # a Slack style incoming webhook, for te
 
 [paths]
 state_dir = "state"                     # ledger.jsonl, plan.json, KILL, dashboard.html
+
+[options]                               # the options leg: one long call or put at a time, off until a person turns it on
+enabled = false
+max_premium_pct = 1.0                   # all option premium held plus the new order, as a share of equity
+min_days_to_expiry = 7
+max_days_to_expiry = 45
+stop_premium_pct = 50.0                 # the exit rule: a stop this far under the entry premium
+limit_buffer_pct = 5.0                  # the entry is a buy limit this far over the ask seen
+feed = "indicative"                     # Alpaca's free options feed; "opra" needs a subscription
+
+[market_data]
+provider = "alpaca"                     # or "finnhub" (a free key, FINNHUB_API_KEY in the environment)
+finnhub_url = "https://finnhub.io"
+
+[airtable]                              # one summary row per routine run, written with AIRTABLE_TOKEN from the environment
+enabled = false
+base_id = ""                            # python scripts/airtable_setup.py makes the table and prints the ids
+table = "Ledgerbell run log (test)"     # a table name or a table id

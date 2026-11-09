@@ -51,6 +51,16 @@ The hard rules, all in `risk.py` as pure functions:
 
 Every order from the example rule or the model goes through `Desk.execute`, the only place an order endpoint is called.
 
+## Options, a second price feed and a run log
+
+**Options leg** (off until `[options] enabled = true`). One shape of option order can leave the program: a single leg long call or put bought to open, with a premium cap (1 percent of equity, premium already held counted), an expiry window (7 to 45 days) and a stop on the premium (50 percent under the entry). A short or naked leg, a spread, a sell, a contract outside the window, a symbol off the watchlist and a second entry while a held contract has no stop are each refused with a named reason before the broker is called. Contracts come from `GET /v2/options/contracts` and prices, implied volatility and greeks from `GET /v1beta1/options/snapshots`; `ledgerbell options SPY` prints them. Alpaca's documentation lists only simple and multi-leg order classes for options, so there is no OTO stop: the stop is sent once the entry has filled, and the open and midday audits cover a contract that missed it. Rules, quotes and limits: [docs/OPTIONS.md](docs/OPTIONS.md).
+
+**A second market data provider.** `[market_data] provider = "finnhub"` takes each symbol's latest price from Finnhub's free `/quote` endpoint (key in `FINNHUB_API_KEY`, sent in the documented header) to size an order and place its stop. Finnhub lists daily candles as Premium and the free key answers 403, so the moving average still comes from Alpaca's bars and the ledger records the fallback.
+
+**Airtable run log.** `[airtable] enabled = true` appends one row per routine run (routine, time, status, orders suggested, orders placed, orders refused) through Airtable's REST API; `python scripts/airtable_setup.py` makes the table. A failing log never fails a routine. Both are in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md).
+
+**What ran for real** ([options only](docs/options-paper-run-captured.txt), [all together](docs/real-run-captured.txt)), on the paper account during market hours: 3804 active SPY contracts in the window and 516 calls within 3 percent of the price, each with a snapshot; one contract bought at 7.16 with its stop at 3.54 accepted as a gtc sell to close, a second contract refused by the premium cap, everything closed. Then the four routines with Finnhub and Airtable on: 7 AAPL, 4 MSFT and 2 AAPL calls sent, one more call refused by the cap, a real Finnhub quote for AAPL of 349.45, five rows written to Airtable and read back by id, then `kill` flattened the account. The real run also found a bug the stand-in had hidden: the midday scan called an option halfway to its stop at minus 7.4 percent, because it measured it against the share stop share. It now uses the option one, with a test.
+
 ## The model step
 
 `agent.py` runs Claude Code headless (`claude -p --tools ""`, every tool off) on a prompt with the account and ten closes per symbol, and demands strict JSON. The reply is validated (symbols on the watchlist, whole share quantities, at most five orders), re-asked once with the exact validation error, and dropped if it is still wrong. Prices come from our bars, never from the model. The model can suggest an order and cannot place one.
@@ -77,16 +87,16 @@ ledgerbell run premarket
 ledgerbell status
 ```
 
-`deploy/crontab` schedules all five routines on the New York clock. Other commands: `ledgerbell kill --reason "..."`, `ledgerbell unkill --yes`, `ledgerbell dashboard`, and `ledgerbell standin` to start the test server by itself. The live endpoint is refused unless the config says `mode = "live"` and `live_confirmed = true`.
+`deploy/crontab` schedules all five routines on the New York clock. Other commands: `ledgerbell kill --reason "..."`, `ledgerbell unkill --yes`, `ledgerbell dashboard`, `ledgerbell options SPY` (contracts with greeks), `ledgerbell quote AAPL` (the configured provider's price) and `ledgerbell standin` to start the test server by itself. The options, Finnhub and Airtable settings are in `config.example.toml`, each off until switched on. The live endpoint is refused unless the config says `mode = "live"` and `live_confirmed = true`.
 
 ## Tests
 
 ```
-python -m pytest              # 103 tests, about 26 seconds
+python -m pytest              # 208 tests, about a minute and a half
 python scripts/mutants.py     # removes one guard at a time in a temp copy
 ```
 
-The tests drive the real client over HTTP against the test server, which is written from Alpaca's public documentation: orders with stops, a duplicate order id, a 401, paging through bars, stops firing on a moving tape, the loss limit tripping the kill switch, a broker that is down while the kill switch engages, alerts to a real local webhook, and the command line end to end. The mutation run breaks 26 guards one at a time (each risk rule, the kill file written first, the paper host check, the kill blocking routines, yesterday's plan never replayed, HTML escaping and more): 26 caught, 0 survived, 0 stale anchors.
+The tests drive the real client over HTTP against the test server, which is written from Alpaca's public documentation: orders with stops, a duplicate order id, a 401, paging through bars, stops firing on a moving tape, the loss limit tripping the kill switch, a broker that is down while the kill switch engages, alerts to a real local webhook, and the command line end to end. The options leg adds the same stand-in endpoints for contracts, snapshots and option orders (written from the documentation, rejecting what it calls invalid for options), and local stand-ins for Finnhub and Airtable. The mutation run breaks 69 guards one at a time (each risk rule and each option rule, the exit stop, the kill file written first, the paper host check, the Finnhub header and retry, the Airtable wait and encoding, HTML escaping and more): 69 caught, 0 survived, 0 stale anchors ([output](docs/mutation-run-captured.txt), which keeps the first run where one survived and the test it led to).
 
 ## Run against a real Alpaca paper account
 
@@ -94,20 +104,21 @@ On a Monday evening with the market closed, `scripts/paper_check.py` and the rou
 
 ## Limits
 
-* Nothing has traded in market hours yet. A fill, a stop firing at the broker, the kill switch closing live positions and the daily loss limit on a real account are tested against the local test server only, and the 60 to 90 days of paper running the work is meant for have not been done.
-* The test server fills market orders at its own price and fires stops at the next price it is given. It does not model slippage, partial fills, fees or the market calendar.
-* Whole shares only, long only, US stocks. Options and crypto are not covered.
+* Fills, the stops and the kill switch were seen on a real paper account for one session (2026-11-09). A stop firing at the broker and the daily loss limit on a real account are tested against the local test server only, and the 60 to 90 days of paper running the work is meant for have not been done.
+* The test server fills market orders at its own price and fires stops at the next price it is given. It does not model slippage, partial fills, fees or the market calendar, and its option chain is made up: no implied volatility surface, assignment, exercise or early expiry.
+* Shares are whole, long only, US stocks. Options are single long calls and puts bought to open, on Alpaca's free indicative feed whose quotes are modified (so the entry is a limit a few percent over the ask). No spreads, no short or covered legs, no exercise or assignment handling. Crypto is not covered.
+* Finnhub's free plan has no candles, so it supplies prices and Alpaca still supplies the bars.
 * Market holidays are handled by asking Alpaca's clock, not by a calendar here.
 * The email alert is tested with an injected sender, not a real mail server. The webhook alert is tested over HTTP.
 * Nothing here is investment advice, and the example rule has not been backtested.
 
 ## Not done
 
-Backtesting, a Notion or Airtable log, an options leg and a market data provider other than Alpaca's own feed.
+Backtesting, and a Notion log (the run log goes to Airtable only).
 
 ## Stack
 
-Python 3.11, requests, pytest, ruff, Claude Code in headless print mode, plain cron.
+Python 3.11, requests, pytest, ruff, Alpaca's trading and market data REST APIs (options included), Finnhub, Airtable, Claude Code in headless print mode, plain cron.
 
 ## License
 

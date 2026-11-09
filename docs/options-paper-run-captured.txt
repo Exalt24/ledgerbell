@@ -1,0 +1,20 @@
+account: equity 99997.95, cash 99997.95, options approved level 3, trading level 3, options buying power 99997.95
+clock: is_open True, next_open 2026-11-10T09:30:00-05:00
+SPY last 752.48; 3804 active contracts expiring 2026-11-16 to 2026-12-24
+calls within 3 percent of the price: 516, with a snapshot: 516 (feed indicative)
+  SPY261116C00730000  call strike   730.00  exp 2026-11-16  bid 24.17 ask 24.48 last 24.80  iv 0.199  delta +0.873 gamma 0.0100 theta -0.375 vega 0.217
+  SPY261116C00731000  call strike   731.00  exp 2026-11-16  bid 23.12 ask 23.77 last 21.22  iv 0.198  delta +0.864 gamma 0.0106 theta -0.389 vega 0.228
+  SPY261116C00732000  call strike   732.00  exp 2026-11-16  bid 22.36 ask 22.74 last 22.99  iv 0.196  delta +0.855 gamma 0.0112 theta -0.399 vega 0.238
+  SPY261116C00733000  call strike   733.00  exp 2026-11-16  bid 21.75 ask 21.76 last 21.89  iv 0.198  delta +0.841 gamma 0.0118 theta -0.422 vega 0.253
+  SPY261116C00734000  call strike   734.00  exp 2026-11-16  bid 20.64 ask 21.31 last 19.62  iv 0.200  delta +0.826 gamma 0.0123 theta -0.445 vega 0.268
+  SPY261116C00735000  call strike   735.00  exp 2026-11-16  bid 19.59 ask 19.93 last 20.27  iv 0.185  delta +0.831 gamma 0.0131 theta -0.411 vega 0.263
+picked: SPY261116C00752000 ask 7.12 iv 0.1585 delta 0.529
+gateway: allowed True, qty 1, limit 7.44, stop 3.54, notes []
+submitted True, order b6061733-e069-4b19-8315-fef69b0d79a6, exit stop placed True, error None
+open orders: [('SPY261116C00752000', 'sell', 'stop', 'new', '3.54')]
+positions: [('SPY261116C00752000', 1, 7.16)]
+a second contract right after: submitted False, error None, reasons ['option premium limit leaves no room for SPY261116C00752000 at up to 7.44 a share']
+ledger: ['order_submitted', 'option_exit_placed', 'order_refused']
+cancel all: 1 orders cancelled
+close all: 1 positions closed
+after: positions 0, open orders 0

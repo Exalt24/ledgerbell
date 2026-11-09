@@ -1,13 +1,15 @@
 """The desk: the one place an order can leave this program, and the kill switch beside it.
 
-Everything that wants to trade (the example strategy, the model agent) hands a Proposal to
-`Desk.execute`. That method runs the risk rules, attaches the stop, writes the ledger line and only then
-calls the broker. Nothing else in the package calls an order endpoint.
+Everything that wants to trade (the example strategy, the model agent) hands a Proposal (a share order) or an
+OptionProposal (one long call or put) to `Desk.execute`. That method runs the risk rules, attaches the stop, writes
+the ledger line and only then calls the broker. Nothing else in the package calls an order endpoint.
 """
 
 from __future__ import annotations
 
 import json
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -16,24 +18,34 @@ from .alerts import Notifier
 from .alpaca import AlpacaClient, AlpacaError, Position
 from .config import Config
 from .ledger import Ledger
-from .risk import Proposal, Verdict
+from .marketdata import AlpacaData, MarketDataProvider
+from .occ import is_option_symbol
+from .risk import OptionProposal, OptionVerdict, Proposal, Verdict
+from .runlog import RunLog
 
 
 @dataclass(frozen=True)
 class Outcome:
-    proposal: Proposal
-    verdict: Verdict
+    proposal: Proposal | OptionProposal
+    verdict: Verdict | OptionVerdict
     submitted: bool
     order_id: str | None = None
     error: str | None = None
+    exit_placed: bool | None = None  # options only: True when the stop on the premium is live, False when it is pending
 
 
 class Desk:
-    def __init__(self, cfg: Config, client: AlpacaClient, ledger: Ledger, notifier: Notifier):
+    def __init__(
+        self, cfg: Config, client: AlpacaClient, ledger: Ledger, notifier: Notifier,
+        data: MarketDataProvider | None = None, sleep: Callable[[float], None] = time.sleep, runlog: RunLog | None = None,
+    ):
         self.cfg = cfg
         self.client = client
         self.ledger = ledger
         self.notifier = notifier
+        self.data = data or AlpacaData(client)  # where prices come from: Alpaca's own feed unless the config says otherwise
+        self.sleep = sleep
+        self.runlog = runlog  # the Airtable run log, when the config turns it on
 
     # -- kill switch --------------------------------------------------------------------------
 
@@ -91,9 +103,11 @@ class Desk:
 
     # -- the gateway --------------------------------------------------------------------------
 
-    def execute(self, proposal: Proposal, routine: str, today: date) -> Outcome:
+    def execute(self, proposal: Proposal | OptionProposal, routine: str, today: date) -> Outcome:
+        if isinstance(proposal, OptionProposal):
+            return self._execute_option(proposal, routine, today)
         account = self.client.account()
-        positions = self.client.positions()
+        positions = [p for p in self.client.positions() if not is_option_symbol(p.symbol)]  # option premium has its own limit
         verdict = risk.check(
             proposal, account, positions, self.cfg.risk, self.cfg.strategy.watchlist, self.kill_engaged()
         )
@@ -120,6 +134,71 @@ class Desk:
         )
         return Outcome(proposal, verdict, True, order_id=order.get("id"))
 
+    # -- the options leg ----------------------------------------------------------------------
+
+    def _unprotected_options(self, positions: list[Position], open_orders: list[dict]) -> tuple[str, ...]:
+        """Option contracts that are held with no stop, or have an entry still resting: no new entry until they are covered."""
+        stops = {o["symbol"] for o in open_orders if o.get("side") == "sell" and o.get("type") in {"stop", "stop_limit"}}
+        bare = [p.symbol for p in positions if is_option_symbol(p.symbol) and p.symbol not in stops]
+        resting = [o["symbol"] for o in open_orders if is_option_symbol(o.get("symbol", "")) and o.get("side") == "buy"]
+        return tuple(dict.fromkeys(bare + resting))
+
+    def _execute_option(self, proposal: OptionProposal, routine: str, today: date) -> Outcome:
+        account = self.client.account()
+        positions = self.client.positions()
+        unprotected = self._unprotected_options(positions, self._flatten(self.client.open_orders()))
+        verdict = risk.check_option(
+            proposal, account, positions, self.cfg.options, self.cfg.risk, self.cfg.strategy.watchlist,
+            self.kill_engaged(), today, unprotected,
+        )
+        base = {
+            "asset": "option", "symbol": proposal.contract, "side": f"{proposal.side}_to_{'open' if proposal.intent == 'open' else 'close'}",
+            "asked_qty": proposal.qty, "source": proposal.source, "reason": proposal.reason, "price": proposal.price,
+        }
+        if not verdict.allowed:
+            self.ledger.append(routine, "order_refused", **base, why=verdict.reasons)
+            return Outcome(proposal, verdict, False)
+        assert verdict.limit_price is not None and verdict.stop_price is not None  # an entry without an exit is not possible by construction
+        cid = f"lb-{routine}-{today.isoformat()}-{proposal.contract}-{proposal.side}"
+        try:
+            order = self.client.submit_option_entry(proposal.contract, verdict.qty, verdict.limit_price, cid)
+        except AlpacaError as exc:
+            self.ledger.append(routine, "order_failed", **base, qty=verdict.qty, error=str(exc))
+            return Outcome(proposal, verdict, False, error=str(exc))
+        self.ledger.append(
+            routine, "order_submitted", **base, qty=verdict.qty, limit_price=verdict.limit_price, stop_price=verdict.stop_price,
+            order_id=order.get("id"), notes=verdict.reasons,
+        )
+        placed = self._attach_option_exit(order, proposal.contract, verdict, cid, routine)
+        return Outcome(proposal, verdict, True, order_id=order.get("id"), exit_placed=placed)
+
+    def _attach_option_exit(self, order: dict, contract: str, verdict: OptionVerdict, cid: str, routine: str) -> bool:
+        """Alpaca has no OTO leg for options, so the stop on the premium is sent as soon as the entry has filled.
+
+        A buy limit at the ask normally fills within a second in market hours: wait a few short polls for it. If it has not
+        filled (the market is closed, say), the entry rests with no exit; the next entry is refused until the stop exists,
+        and the open and midday audits place it as soon as the position shows up.
+        """
+        status, filled = order.get("status"), order.get("filled_qty")
+        for _ in range(6):
+            if status == "filled":
+                break
+            self.sleep(0.25)
+            order = self.client.get_order(order["id"])
+            status, filled = order.get("status"), order.get("filled_qty")
+        if status != "filled":
+            self.ledger.append(routine, "option_exit_pending", symbol=contract, entry_status=status, stop_price=verdict.stop_price)
+            return False
+        qty = int(float(filled or verdict.qty))
+        try:
+            stop = self.client.submit_option_stop(contract, qty, verdict.stop_price, f"{cid}-stop")
+        except AlpacaError as exc:
+            self.ledger.append(routine, "option_exit_failed", symbol=contract, qty=qty, error=str(exc))
+            self.notifier.send(f"Option entry on {contract} has no stop", str(exc))
+            return False
+        self.ledger.append(routine, "option_exit_placed", symbol=contract, qty=qty, stop_price=verdict.stop_price, order_id=stop.get("id"))
+        return True
+
     # -- stops --------------------------------------------------------------------------------
 
     @staticmethod
@@ -145,15 +224,16 @@ class Desk:
         return notes
 
     def _fix_missing_stop(self, pos: Position, routine: str, today: date) -> str:
-        limit = self.cfg.risk.stop_loss_pct / 100
+        option = is_option_symbol(pos.symbol)
+        limit = (self.cfg.options.stop_premium_pct if option else self.cfg.risk.stop_loss_pct) / 100
         cid = f"lb-{routine}-{today.isoformat()}-{pos.symbol}-stop"
         try:
             if pos.unrealized_plpc <= -limit:
-                self.client.submit_exit(pos.symbol, pos.qty, cid)
+                (self.client.submit_option_close if option else self.client.submit_exit)(pos.symbol, pos.qty, cid)
                 self.ledger.append(routine, "stop_breach_exit", symbol=pos.symbol, qty=pos.qty, plpc=pos.unrealized_plpc)
                 return f"{pos.symbol}: no stop and already {pos.unrealized_plpc * 100:.1f}% down, closed"
             price = round(pos.avg_entry_price * (1 - limit), 2)
-            self.client.submit_stop(pos.symbol, pos.qty, price, cid)
+            (self.client.submit_option_stop if option else self.client.submit_stop)(pos.symbol, pos.qty, price, cid)
             self.ledger.append(routine, "stop_placed", symbol=pos.symbol, qty=pos.qty, stop_price=price)
             return f"{pos.symbol}: stop placed at {price:.2f}"
         except AlpacaError as exc:

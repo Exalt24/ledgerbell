@@ -32,6 +32,36 @@ class StrategyRules:
 
 
 @dataclass(frozen=True)
+class OptionRules:
+    """The options leg. Off by default: a person turns it on in the config.
+
+    Only a single leg long call or put bought to open is ever allowed (see `risk.check_option`); these are its limits.
+    """
+
+    enabled: bool = False
+    max_premium_pct: float = 1.0  # all option premium held plus the new order, as a share of equity
+    min_days_to_expiry: int = 7  # a contract about to expire is mostly time decay
+    max_days_to_expiry: int = 45
+    stop_premium_pct: float = 50.0  # the exit rule: sell to close when the premium falls this far under the entry
+    limit_buffer_pct: float = 5.0  # the entry is a buy limit this far over the ask seen, because the free feed's quotes are modified
+    feed: str = "indicative"  # Alpaca's free options feed; "opra" needs a subscription
+
+
+@dataclass(frozen=True)
+class MarketDataSettings:
+    provider: str = "alpaca"  # alpaca or finnhub (a free API key, FINNHUB_API_KEY in the environment)
+    finnhub_url: str = "https://finnhub.io"
+
+
+@dataclass(frozen=True)
+class AirtableSettings:
+    enabled: bool = False  # one summary row per routine run, written with AIRTABLE_TOKEN from the environment
+    base_id: str = ""
+    table: str = "Ledgerbell run log (test)"  # a table name or a table id (tbl...)
+    api_url: str = "https://api.airtable.com"
+
+
+@dataclass(frozen=True)
 class AlertSettings:
     email_to: str = ""
     email_from: str = ""
@@ -52,6 +82,9 @@ class Config:
     risk: RiskRules = field(default_factory=RiskRules)
     strategy: StrategyRules = field(default_factory=StrategyRules)
     alerts: AlertSettings = field(default_factory=AlertSettings)
+    options: OptionRules = field(default_factory=OptionRules)
+    market_data: MarketDataSettings = field(default_factory=MarketDataSettings)
+    airtable: AirtableSettings = field(default_factory=AirtableSettings)
 
     @property
     def kill_file(self) -> Path:
@@ -95,6 +128,26 @@ def validate_risk(risk: RiskRules) -> RiskRules:
     return risk
 
 
+def validate_options(opt: OptionRules) -> OptionRules:
+    _positive("options.max_premium_pct", opt.max_premium_pct)
+    _positive("options.stop_premium_pct", opt.stop_premium_pct)
+    if not 0 <= opt.limit_buffer_pct <= 20:
+        raise ConfigError("options.limit_buffer_pct must be between 0 and 20")
+    if opt.max_premium_pct > 5:
+        raise ConfigError("options.max_premium_pct above 5 is refused: option premium can go to zero")
+    if opt.stop_premium_pct >= 100:
+        raise ConfigError("options.stop_premium_pct of 100 or more is not a stop")
+    if opt.min_days_to_expiry < 1 or opt.max_days_to_expiry < opt.min_days_to_expiry:
+        raise ConfigError("options expiry window needs 1 <= min_days_to_expiry <= max_days_to_expiry")
+    if opt.feed not in {"indicative", "opra"}:
+        raise ConfigError(f"options.feed must be indicative or opra, got {opt.feed!r}")
+    return opt
+
+
+def _pick(cls, table: dict):
+    return cls(**{k: v for k, v in table.items() if k in cls.__dataclass_fields__})
+
+
 def load(path: str | Path) -> Config:
     raw = tomllib.loads(Path(path).read_text(encoding="utf-8"))
     alpaca = _section(raw, "alpaca")
@@ -108,6 +161,13 @@ def load(path: str | Path) -> Config:
     mode = str(alpaca.get("mode", "paper"))
     if mode not in {"paper", "live", "standin"}:
         raise ConfigError(f"alpaca.mode must be paper, live or standin, got {mode!r}")
+    options = validate_options(_pick(OptionRules, _section(raw, "options")))
+    market_data = _pick(MarketDataSettings, _section(raw, "market_data"))
+    if market_data.provider not in {"alpaca", "finnhub"}:
+        raise ConfigError(f"market_data.provider must be alpaca or finnhub, got {market_data.provider!r}")
+    airtable = _pick(AirtableSettings, _section(raw, "airtable"))
+    if airtable.enabled and not airtable.base_id:
+        raise ConfigError("airtable.enabled needs airtable.base_id (python scripts/airtable_setup.py makes the base)")
     defaults = Config()
     cfg = Config(
         mode=mode,
@@ -120,6 +180,9 @@ def load(path: str | Path) -> Config:
         risk=validate_risk(risk),
         strategy=strategy,
         alerts=alerts,
+        options=options,
+        market_data=market_data,
+        airtable=airtable,
     )
     return cfg
 
@@ -131,3 +194,12 @@ def credentials(env: dict[str, str] | None = None) -> tuple[str, str]:
     if not key or not secret:
         raise ConfigError("set APCA_API_KEY_ID and APCA_API_SECRET_KEY (trade-only keys, paper account)")
     return key, secret
+
+
+def secret_from_env(name: str, env: dict[str, str] | None = None) -> str:
+    """A key for an optional service (FINNHUB_API_KEY, AIRTABLE_TOKEN). Never read from the config file."""
+    env = os.environ if env is None else env
+    value = env.get(name, "").strip()
+    if not value:
+        raise ConfigError(f"set {name} in the environment")
+    return value

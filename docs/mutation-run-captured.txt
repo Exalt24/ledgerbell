@@ -1,0 +1,79 @@
+Mutation run of scripts/mutants.py, 2026-11-10, in a temp copy of the repository.
+First run over the 68 guards listed then: 67 caught and 1 survived (the Airtable table name encoding: requests percent encodes a space, so a name with a slash, a question mark or a hash was the case no test had).
+A test with such a name was added, and a guard for the midday scan's option stop share was added. The two reruns follow the first run, 69 guards in all.
+
+caught  risk.py: kill switch refuses all
+caught  risk.py: watchlist check
+caught  risk.py: loss limit at exactly the limit
+caught  risk.py: buys refused after the loss limit
+caught  risk.py: size limit counts what is held
+caught  risk.py: max open positions
+caught  risk.py: no short selling
+caught  risk.py: stop sits under the price
+caught  risk.py: buying power cap
+caught  desk.py: kill flag written first
+caught  desk.py: kill cancels orders
+caught  desk.py: kill closes positions
+caught  desk.py: loss limit engages the kill
+caught  desk.py: missing stops are fixed
+caught  desk.py: stop already breached means exit
+caught  desk.py: idempotent client order id
+caught  alpaca.py: paper mode host guard
+caught  alpaca.py: live needs confirmation
+caught  routines.py: kill blocks trading routines
+caught  routines.py: yesterday's plan is never replayed
+caught  routines.py: closed market skips the open
+caught  agent.py: one re-ask with the error
+caught  agent.py: symbols must be on the watchlist
+caught  dashboard.py: html escaping
+caught  strategy.py: sell below the average
+caught  cli.py: unkill needs --yes
+caught  risk.py: options off in the config refuses
+caught  risk.py: kill switch refuses an option entry
+caught  risk.py: single leg only
+caught  risk.py: no short or naked option leg
+caught  risk.py: buy to open only
+caught  risk.py: contract symbol must parse
+caught  risk.py: option underlying on the watchlist
+caught  risk.py: expiry minimum
+caught  risk.py: expiry maximum
+caught  risk.py: standard multiplier only
+caught  risk.py: loss limit blocks option entries
+caught  risk.py: no entry while an option has no stop
+caught  risk.py: premium cap counts what is held
+caught  risk.py: premium cap sized on the limit
+caught  risk.py: option cash cap
+caught  risk.py: stop sits under the premium
+caught  risk.py: a premium too small for a stop is refused
+caught  risk.py: entry limit sits over the ask
+caught  desk.py: exit stop placed after the entry fills
+caught  desk.py: unfilled entry is pending, not stopped
+caught  desk.py: bare option positions block entries
+caught  desk.py: resting option entries block entries
+caught  desk.py: audit knows option stops
+caught  desk.py: share limits ignore option positions
+caught  alpaca.py: entry is buy to open
+caught  alpaca.py: contracts follow the page token
+caught  alpaca.py: snapshots go 100 symbols at a time
+caught  alpaca.py: contracts are asked for inside the window
+caught  config.py: stop of 100 percent is not a stop
+caught  config.py: premium cap above 5 percent refused
+caught  config.py: unknown market data provider refused
+caught  config.py: airtable log needs a base id
+caught  marketdata.py: finnhub key goes in its documented header
+caught  marketdata.py: finnhub zero quote is an error
+caught  marketdata.py: finnhub 429 is retried
+caught  routines.py: no candles falls back to alpaca bars
+caught  routines.py: provider quotes price the orders
+caught  routines.py: option legs only when options are on
+caught  routines.py: a dead run log never stops a routine
+caught  runlog.py: airtable 429 waits and retries
+SURVIVED runlog.py: table name is url encoded
+caught  cli.py: provider errors are an exit code
+68 mutants: 67 caught, 1 survived, 0 stale
+
+== rerun of the survivor and the new guard
+caught  runlog.py: table name is url encoded
+1 mutants: 1 caught, 0 survived, 0 stale
+caught  routines.py: midday scan uses the option stop share
+1 mutants: 1 caught, 0 survived, 0 stale
