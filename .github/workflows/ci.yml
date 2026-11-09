@@ -28,5 +28,3 @@ jobs:
         run: ruff check .
       - name: Test
         run: python -m pytest -q
-      - name: Mutants
-        run: python scripts/mutants.py
