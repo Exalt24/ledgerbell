@@ -49,8 +49,9 @@ class OptionRules:
 
 @dataclass(frozen=True)
 class MarketDataSettings:
-    provider: str = "alpaca"  # alpaca or finnhub (a free API key, FINNHUB_API_KEY in the environment)
+    provider: str = "alpaca"  # alpaca, finnhub (FINNHUB_API_KEY in the environment) or polygon (POLYGON_API_KEY in the environment)
     finnhub_url: str = "https://finnhub.io"
+    polygon_url: str = "https://api.massive.com"  # Polygon.io renamed itself Massive; https://api.polygon.io is documented as serving the same API
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,10 @@ class AlertSettings:
     email_from: str = ""
     smtp_host: str = ""
     smtp_port: int = 587
-    webhook_url: str = ""  # a text message service: Slack style JSON {"text": ...}
+    webhook_url: str = ""  # a chat service: Slack style JSON {"text": ...}
+    sms_to: str = ""  # a text message to this number (E.164, +15558675310) through Twilio; TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in the environment
+    sms_from: str = ""  # a Twilio number the account owns
+    twilio_url: str = "https://api.twilio.com"
 
 
 @dataclass(frozen=True)
@@ -163,8 +167,8 @@ def load(path: str | Path) -> Config:
         raise ConfigError(f"alpaca.mode must be paper, live or standin, got {mode!r}")
     options = validate_options(_pick(OptionRules, _section(raw, "options")))
     market_data = _pick(MarketDataSettings, _section(raw, "market_data"))
-    if market_data.provider not in {"alpaca", "finnhub"}:
-        raise ConfigError(f"market_data.provider must be alpaca or finnhub, got {market_data.provider!r}")
+    if market_data.provider not in {"alpaca", "finnhub", "polygon"}:
+        raise ConfigError(f"market_data.provider must be alpaca, finnhub or polygon, got {market_data.provider!r}")
     airtable = _pick(AirtableSettings, _section(raw, "airtable"))
     if airtable.enabled and not airtable.base_id:
         raise ConfigError("airtable.enabled needs airtable.base_id (python scripts/airtable_setup.py makes the base)")
@@ -197,7 +201,7 @@ def credentials(env: dict[str, str] | None = None) -> tuple[str, str]:
 
 
 def secret_from_env(name: str, env: dict[str, str] | None = None) -> str:
-    """A key for an optional service (FINNHUB_API_KEY, AIRTABLE_TOKEN). Never read from the config file."""
+    """A key for an optional service (FINNHUB_API_KEY, POLYGON_API_KEY, AIRTABLE_TOKEN, TWILIO_AUTH_TOKEN). Never read from the config file."""
     env = os.environ if env is None else env
     value = env.get(name, "").strip()
     if not value:

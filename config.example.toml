@@ -25,7 +25,9 @@ email_to = ""                           # leave empty to turn email off
 email_from = ""
 smtp_host = ""
 smtp_port = 587
-webhook_url = ""                        # a Slack style incoming webhook, for text alerts
+webhook_url = ""                        # a Slack style incoming webhook, for chat alerts
+sms_to = ""                             # a text message to this number (+15558675310 style) through Twilio; leave empty to turn it off
+sms_from = ""                           # a Twilio number the account owns. TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN go in the environment
 
 [paths]
 state_dir = "state"                     # ledger.jsonl, plan.json, KILL, dashboard.html
@@ -40,8 +42,9 @@ limit_buffer_pct = 5.0                  # the entry is a buy limit this far over
 feed = "indicative"                     # Alpaca's free options feed; "opra" needs a subscription
 
 [market_data]
-provider = "alpaca"                     # or "finnhub" (a free key, FINNHUB_API_KEY in the environment)
+provider = "alpaca"                     # or "finnhub" (FINNHUB_API_KEY in the environment) or "polygon" (POLYGON_API_KEY in the environment)
 finnhub_url = "https://finnhub.io"
+polygon_url = "https://api.massive.com" # Polygon.io is now Massive; https://api.polygon.io is documented as serving the same API
 
 [airtable]                              # one summary row per routine run, written with AIRTABLE_TOKEN from the environment
 enabled = false

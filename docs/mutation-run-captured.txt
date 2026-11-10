@@ -77,3 +77,36 @@ caught  runlog.py: table name is url encoded
 1 mutants: 1 caught, 0 survived, 0 stale
 caught  routines.py: midday scan uses the option stop share
 1 mutants: 1 caught, 0 survived, 0 stale
+
+== added 2026-11-10 after the Polygon provider and the Twilio text alert: 17 new guards, 86 in all
+The first run of every new guard follows (python scripts/mutants.py "<slice>"), with the two older guards whose anchors the new code touched:
+the Finnhub retry anchor now also names the line after it because the Polygon client has the same condition, and the provider name check now lists polygon.
+All 17 caught on their first run, none survived. The rest of the 69 were not rerun for this change.
+
+== marketdata.py: polygon
+caught  marketdata.py: polygon key goes in the bearer header
+caught  marketdata.py: polygon key never goes in the url
+caught  marketdata.py: polygon key comes from the environment
+caught  marketdata.py: polygon 429 is retried
+caught  marketdata.py: polygon 429 waits out the free plan's minute
+caught  marketdata.py: polygon retry honours retry-after
+caught  marketdata.py: polygon unknown ticker is an error
+caught  marketdata.py: polygon bars ask for a date range
+caught  marketdata.py: polygon bars are cut to the limit asked
+9 mutants: 9 caught, 0 survived, 0 stale
+== alerts.py
+caught  alerts.py: sms is sent with basic auth
+caught  alerts.py: sms is a form body
+caught  alerts.py: sms goes to sms_to from sms_from
+caught  alerts.py: sms body is cut to twilio's limit
+caught  alerts.py: sms auth token comes from the environment
+caught  alerts.py: sms needs both numbers
+caught  alerts.py: a 4xx from twilio is a problem
+caught  alerts.py: a failed text is reported never raised
+8 mutants: 8 caught, 0 survived, 0 stale
+== config.py: unknown market data
+caught  config.py: unknown market data provider refused
+1 mutants: 1 caught, 0 survived, 0 stale
+== marketdata.py: finnhub 429
+caught  marketdata.py: finnhub 429 is retried
+1 mutants: 1 caught, 0 survived, 0 stale

@@ -156,3 +156,21 @@ def airtable():
     a = Airtable()
     yield a
     a.stop()
+
+
+@pytest.fixture()
+def polygon():
+    from .fakes import Polygon
+
+    p = Polygon()
+    yield p
+    p.stop()
+
+
+@pytest.fixture()
+def twilio():
+    from .fakes import Twilio
+
+    t = Twilio()
+    yield t
+    t.stop()
