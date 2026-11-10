@@ -92,7 +92,7 @@ ledgerbell status
 ## Tests
 
 ```
-python -m pytest              # 208 tests, about a minute and a half
+python -m pytest              # 210 tests, about a minute and a half
 python scripts/mutants.py     # removes one guard at a time in a temp copy
 ```
 
@@ -109,7 +109,7 @@ On a Monday evening with the market closed, `scripts/paper_check.py` and the rou
 * Shares are whole, long only, US stocks. Options are single long calls and puts bought to open, on Alpaca's free indicative feed whose quotes are modified (so the entry is a limit a few percent over the ask). No spreads, no short or covered legs, no exercise or assignment handling. Crypto is not covered.
 * Finnhub's free plan has no candles, so it supplies prices and Alpaca still supplies the bars.
 * Market holidays are handled by asking Alpaca's clock, not by a calendar here.
-* The email alert is tested with an injected sender, not a real mail server. The webhook alert is tested over HTTP.
+* The email alert is tested over a real SMTP conversation with a small local mail server (no login or TLS); it has not been sent through a hosted mail provider. The webhook alert is tested over HTTP.
 * Nothing here is investment advice, and the example rule has not been backtested.
 
 ## Not done
