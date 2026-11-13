@@ -112,14 +112,14 @@ On a Monday evening with the market closed, `scripts/paper_check.py` and the rou
 * The test server fills market orders at its own price and fires stops at the next price it is given. It does not model slippage, partial fills, fees or the market calendar, and its option chain is made up: no implied volatility surface, assignment, exercise or early expiry.
 * Shares are whole, long only, US stocks. Options are single long calls and puts bought to open, on Alpaca's free indicative feed whose quotes are modified (so the entry is a limit a few percent over the ask). No spreads, no short or covered legs, no exercise or assignment handling. Crypto is not covered.
 * Finnhub's free plan has no candles, so it supplies prices and Alpaca still supplies the bars.
-* The Polygon provider and the Twilio text alert have only been run against local stand-ins written from the vendors' documentation. They have not been run against the live Polygon (Massive) or Twilio services, and no text has been sent to a phone. Polygon's free plan allows five calls a minute and a routine makes about ten for a five symbol watchlist, so on that plan some calls get a 429, the routine falls back to Alpaca's bars and bar closes for them and the ledger says so.
+* The Polygon provider and the Twilio text alert have only been run against local stand-ins written from the vendors' documentation. Polygon's free plan allows five calls a minute and a routine makes about ten for a five symbol watchlist, so on that plan some calls get a 429, the routine falls back to Alpaca's bars and bar closes for them and the ledger says so.
 * Market holidays are handled by asking Alpaca's clock, not by a calendar here.
 * The email alert is tested over a real SMTP conversation with a small local mail server (no login or TLS); it has not been sent through a hosted mail provider. The webhook alert is tested over HTTP, and the text alert over HTTP against the Twilio stand-in.
 * Nothing here is investment advice, and the example rule has not been backtested.
 
-## Not done
+## Next
 
-Backtesting, and a Notion log (the run log goes to Airtable only).
+Backtesting and a Notion log are next. The run log goes to Airtable today.
 
 ## Stack
 
