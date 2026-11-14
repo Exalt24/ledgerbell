@@ -65,6 +65,10 @@ Every order from the example rule or the model goes through `Desk.execute`, the 
 
 **What ran for real** ([options only](docs/options-paper-run-captured.txt), [all together](docs/real-run-captured.txt)), on the paper account during market hours: 3804 active SPY contracts in the window and 516 calls within 3 percent of the price, each with a snapshot; one contract bought at 7.16 with its stop at 3.54 accepted as a gtc sell to close, a second contract refused by the premium cap, everything closed. Then the four routines with Finnhub and Airtable on: 7 AAPL, 4 MSFT and 2 AAPL calls sent, one more call refused by the cap, a real Finnhub quote for AAPL of 349.45, five rows written to Airtable and read back by id, then `kill` flattened the account. The real run also found a bug the stand-in had hidden: the midday scan called an option halfway to its stop at minus 7.4 percent, because it measured it against the share stop share. It now uses the option one, with a test.
 
+## Serverless pieces
+
+An HTTP API (FastAPI, `src/ledgerbell/api.py`) answers "would this order pass the risk rules" and sends alerts, and runs on Modal's free plan. Alerts can also go out through Amazon SES, and a Netlify function reports whether the bot is still running. All three ran for real: the Modal endpoint answered in 4.6 s on its first call and about 1.1 s warm from the Philippines, one test alert was delivered through SES to a verified address, and the Netlify status function answers 200 at https://ledgerbell-status.netlify.app/status. CI runs the Python and the Node tests on every push. Figures, the deliberate breakages and the limits: [docs/SERVERLESS.md](docs/SERVERLESS.md).
+
 ## The model step
 
 `agent.py` runs Claude Code headless (`claude -p --tools ""`, every tool off) on a prompt with the account and ten closes per symbol, and demands strict JSON. The reply is validated (symbols on the watchlist, whole share quantities, at most five orders), re-asked once with the exact validation error, and dropped if it is still wrong. Prices come from our bars, never from the model. The model can suggest an order and cannot place one.
@@ -96,7 +100,7 @@ ledgerbell status
 ## Tests
 
 ```
-python -m pytest              # 232 tests, about two minutes
+python -m pytest              # 271 tests, about three minutes
 python scripts/mutants.py     # removes one guard at a time in a temp copy
 ```
 
@@ -123,7 +127,7 @@ Backtesting and a Notion log are next. The run log goes to Airtable today.
 
 ## Stack
 
-Python 3.11, requests, pytest, ruff, Alpaca's trading and market data REST APIs (options included), Finnhub, Polygon, Twilio, Airtable, Claude Code in headless print mode, plain cron.
+Python 3.11, requests, FastAPI on Modal, boto3 with Amazon SES, a Netlify Function, pytest, ruff, GitHub Actions, Alpaca's trading and market data REST APIs (options included), Finnhub, Polygon, Twilio, Airtable, Claude Code in headless print mode, plain cron.
 
 ## License
 

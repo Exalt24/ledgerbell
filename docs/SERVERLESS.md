@@ -51,16 +51,16 @@ It is deployed at https://ledgerbell-status.netlify.app/status (Netlify's free p
 
 ## Tests
 
-* `tests/test_alerts_ses.py` (16 tests) drives boto3 over real HTTP against a local SES v2 stand-in written from the documentation. It checks the SigV4 credential scope (key, region, service), the request body, a subject with a line break, a recipient or sender that is not verified (400 `MessageRejected`), throttling, a wrong access key (403), a dead port, a missing boto3, and that the secret key is in no request, no problem string and no setting.
-* `tests/test_api.py` (23 tests) uses FastAPI's test client: each risk verdict against the rules, the key on every protected route, an empty key refused at build time, bad input as a 422 and never a 500, an alert that cannot name a recipient, and the app built from the environment the way Modal starts it.
+* `tests/test_alerts_ses.py` (15 tests) drives boto3 over real HTTP against a local SES v2 stand-in written from the documentation. It checks the SigV4 credential scope (key, region, service), the request body, a subject with a line break, a recipient or sender that is not verified (400 `MessageRejected`), throttling, a wrong access key (403), a dead port, a missing boto3, and that the secret key is in no request, no problem string and no setting.
+* `tests/test_api.py` (19 tests) uses FastAPI's test client: each risk verdict against the rules, the key on every protected route, an empty key refused at build time, bad input as a 422 and never a 500, an alert that cannot name a recipient, and the app built from the environment the way Modal starts it.
 * `tests/test_heartbeat.py` (5 tests) checks what the file holds and that it never holds an account figure, and that `ledgerbell heartbeat` needs no broker keys.
 * `node --test netlify/test/evaluate.test.mjs` (11 tests) covers the weekend rule, a killed bot, a stale file, junk and a time in the future, plus the function itself with `fetch` replaced.
-* `python scripts/mutants.py` has 15 more breaks for these pieces: the key check, the empty key, the docs pages, the kill flag, the recipient rule, the subject rule, the SES error code and the heartbeat fields.
+* `python scripts/mutants.py` has 15 more breaks for these pieces: the key check, the empty key, the docs pages, the kill flag, the recipient rule, the subject rule, the SES error code and the heartbeat fields. The first run of them left two alive: a test that would have passed with the address check removed, and a break of the docs pages that changed nothing (FastAPI serves no docs page when the schema address is off). The test now checks the message, the break now turns the schema address on, and the second run is in [mutation-run-serverless-captured.txt](mutation-run-serverless-captured.txt). The 86 older breaks were not run again for this change.
 
 ## Limits
 
 * The SES account is in the sandbox, so alerts reach only verified addresses. Production access was not requested.
 * The Modal endpoint scales to zero and costs a cold start of several seconds after a quiet spell. It has no rate limit of its own.
-* The status page serves a heartbeat file that a person publishes with `ledgerbell heartbeat` and a Netlify deploy. Nothing publishes it on a schedule yet, so the page will go stale by design until the cron host does.
+* The status page serves a heartbeat file that a person publishes with `ledgerbell heartbeat` and a Netlify deploy. Nothing publishes it on a schedule yet, so after 36 weekday hours the page answers 503 until someone publishes a new file.
 * The API is stateless. It does not read the ledger or the kill file, so the caller passes `kill_engaged` and the account snapshot.
-* The SES and Netlify and Modal runs were done once, on 2026-11-14, from one machine.
+* The Modal, SES and Netlify runs were each done once, on 2026-11-14, from one machine.
