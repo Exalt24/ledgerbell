@@ -1,0 +1,24 @@
+scripts/mutants.py, the 15 breaks added for the SES alert, the API and the heartbeat file, run on 2026-11-15 in two slices after the first run's two survivors were fixed (a test that did not check the message of the missing address error, and a docs page break that changed nothing)
+
+== slice 1
+caught  ses.py: a subject is cut to one line
+caught  ses.py: a subject is cut to 200 characters
+caught  ses.py: both addresses are needed
+caught  ses.py: ses names its own error code
+caught  alerts.py: no ses alert without both addresses
+caught  alerts.py: a failed ses alert is reported
+6 mutants: 6 caught, 0 survived, 0 stale
+
+== slice 2
+caught  api.py: the api key is checked
+caught  api.py: an empty api key is refused
+caught  api.py: the docs pages are off
+caught  api.py: the kill switch flag reaches the rules
+caught  api.py: symbols are upper cased
+caught  api.py: an alert reports its problems
+caught  api.py: an alert cannot name a recipient
+caught  heartbeat.py: the kill flag is reported
+caught  heartbeat.py: the last event time is the ledger's
+9 mutants: 9 caught, 0 survived, 0 stale
+
+total: 15 caught, 0 survived, 0 stale
