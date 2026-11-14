@@ -1,4 +1,4 @@
-"""Alerts by email, by a chat webhook and by a text message through Twilio. A failed alert is logged and never stops a routine.
+"""Alerts by email, by a chat webhook, by a text message through Twilio and by Amazon SES. A failed alert is logged and never stops a routine.
 
 Twilio's REST API (twilio.com/docs/messaging/api/message-resource): `POST /2010-04-01/Accounts/{AccountSid}/Messages.json`
 with `application/x-www-form-urlencoded` fields To, From and Body (a body of up to 1,600 characters), authenticated with HTTP
@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import requests
 
+from . import ses
 from .config import AlertSettings, secret_from_env
 
 SMS_MAX_CHARS = 1600  # Twilio's limit for one Body
@@ -28,12 +29,14 @@ class Notifier:
         http_post: Callable[..., requests.Response] = requests.post,
         smtp_login: tuple[str, str] | None = None,
         env: dict[str, str] | None = None,
+        ses_send: Callable[[AlertSettings, str, str], str] = ses.send,
     ):
         self.s = settings
         self._smtp_factory = smtp_factory
         self._post = http_post
         self._login = smtp_login
         self._env = env
+        self._ses_send = ses_send
 
     def send(self, subject: str, body: str) -> list[str]:
         """Returns one problem string per channel that failed (empty list means all went out)."""
@@ -70,6 +73,11 @@ class Notifier:
                     problems.append(f"sms: HTTP {resp.status_code}{_twilio_reason(resp)}")
             except Exception as exc:  # noqa: BLE001
                 problems.append(f"sms: {exc}")
+        if self.s.ses_to and self.s.ses_from:
+            try:
+                self._ses_send(self.s, subject, body)
+            except Exception as exc:  # noqa: BLE001
+                problems.append(f"ses: {exc}")
         return problems
 
 

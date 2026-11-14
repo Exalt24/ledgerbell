@@ -28,6 +28,9 @@ smtp_port = 587
 webhook_url = ""                        # a Slack style incoming webhook, for chat alerts
 sms_to = ""                             # a text message to this number (+15558675310 style) through Twilio; leave empty to turn it off
 sms_from = ""                           # a Twilio number the account owns. TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN go in the environment
+ses_to = ""                             # an alert by Amazon SES to this address (pip install -e ".[aws]"); AWS credentials come from the usual AWS environment, never this file
+ses_from = ""                           # a sender verified in SES. A new account is in the SES sandbox: the recipient must be verified too
+ses_region = ""                         # empty means the AWS default region
 
 [paths]
 state_dir = "state"                     # ledger.jsonl, plan.json, KILL, dashboard.html

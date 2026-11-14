@@ -1,0 +1,29 @@
+functionsDirectory = "C:\\Projects\\Professional\\Projects\\Apps\\ledgerbell\\netlify\\functions"
+functionsDirectoryOrigin = "config-v1"
+plugins = []
+headers = []
+redirects = []
+
+[build]
+publish = "C:\\Projects\\Professional\\Projects\\Apps\\ledgerbell\\netlify\\site"
+publishOrigin = "config"
+functions = "C:\\Projects\\Professional\\Projects\\Apps\\ledgerbell\\netlify\\functions"
+
+[build.environment]
+
+[build.processing]
+
+[build.processing.css]
+
+[build.processing.html]
+
+[build.processing.images]
+
+[build.processing.js]
+
+[build.services]
+
+[functions]
+
+[functions."*"]
+node_bundler = "esbuild"

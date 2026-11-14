@@ -107,6 +107,22 @@ MUTANTS = [
     ("alerts.py", "sms needs both numbers", "if self.s.sms_to and self.s.sms_from:", "if True:"),
     ("alerts.py", "a 4xx from twilio is a problem", 'if resp.status_code >= 400:\n                    problems.append(f"sms: HTTP', 'if False:\n                    problems.append(f"sms: HTTP'),
     ("alerts.py", "a failed text is reported never raised", '            except Exception as exc:  # noqa: BLE001\n                problems.append(f"sms: {exc}")', '            except KeyboardInterrupt as exc:  # noqa: BLE001\n                problems.append(f"sms: {exc}")'),
+    # -- the SES alert, the HTTP API (Modal) and the heartbeat file (Netlify)
+    ("ses.py", "a subject is cut to one line", 'return " ".join(subject.split())[:SUBJECT_MAX]', "return subject[:SUBJECT_MAX]"),
+    ("ses.py", "a subject is cut to 200 characters", 'return " ".join(subject.split())[:SUBJECT_MAX]', 'return " ".join(subject.split())'),
+    ("ses.py", "both addresses are needed", "    if not settings.ses_to or not settings.ses_from:", "    if False:"),
+    ("ses.py", "ses names its own error code", "raise SesError(f\"{err.get('Code', 'Error')}: {str(err.get('Message', ''))[:200]}\") from exc", 'raise SesError("ses failed") from exc'),
+    ("alerts.py", "no ses alert without both addresses", "        if self.s.ses_to and self.s.ses_from:", "        if True:"),
+    ("alerts.py", "a failed ses alert is reported", 'problems.append(f"ses: {exc}")', "pass"),
+    ("api.py", "the api key is checked", "        if not hmac.compare_digest(x_api_key.encode(), api_key.encode()):", "        if False:"),
+    ("api.py", "an empty api key is refused", "    if not api_key:", "    if False:"),
+    ("api.py", "the docs pages are off", 'docs_url=None, redoc_url=None, openapi_url=None', 'docs_url=None, redoc_url=None, openapi_url="/openapi.json"'),
+    ("api.py", "the kill switch flag reaches the rules", "cfg.strategy.watchlist, req.kill_engaged)", "cfg.strategy.watchlist, False)"),
+    ("api.py", "symbols are upper cased", "risk.Proposal(req.proposal.symbol.upper(), req.proposal.side", "risk.Proposal(req.proposal.symbol, req.proposal.side"),
+    ("api.py", "an alert reports its problems", '{"sent": not problems, "problems": problems}', '{"sent": True, "problems": problems}'),
+    ("api.py", "an alert cannot name a recipient", 'class AlertIn(BaseModel):\n    model_config = ConfigDict(extra="forbid")', 'class AlertIn(BaseModel):\n    model_config = ConfigDict(extra="ignore")'),
+    ("heartbeat.py", "the kill flag is reported", '"kill_engaged": kill_engaged,', '"kill_engaged": False,'),
+    ("heartbeat.py", "the last event time is the ledger's", '"last_event_at": last["ts"] if last else None,', '"last_event_at": now.isoformat(timespec="seconds"),'),
 ]
 
 
@@ -118,7 +134,7 @@ def run_suite(src: Path, tests: Path) -> bool:
 
 
 def main() -> int:
-    only = sys.argv[1] if len(sys.argv) > 1 else ""  # an optional substring of "file: label" to run a slice of the list
+    only = sys.argv[1:]  # optional substrings of "file: label" to run a slice of the list
     caught = survived = stale = 0
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp) / "copy"
@@ -128,7 +144,7 @@ def main() -> int:
             print("the suite is red before any change: fix that first")
             return 2
         for fname, label, old, new in MUTANTS:
-            if only and only not in f"{fname}: {label}":
+            if only and not any(o in f"{fname}: {label}" for o in only):
                 continue
             path = src / "ledgerbell" / fname
             original = path.read_text(encoding="utf-8")

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import config as cfgmod
-from . import dashboard, options, standin
+from . import dashboard, heartbeat, options, standin
 from .agent import ClaudeCodeRunner
 from .alerts import Notifier
 from .alpaca import AlpacaClient, AlpacaError
@@ -48,6 +48,8 @@ def parser() -> argparse.ArgumentParser:
     o.add_argument("--rows", type=int, default=12, help="how many contracts to print")
     q = sub.add_parser("quote", help="latest price from the configured market data provider")
     q.add_argument("symbol")
+    h = sub.add_parser("heartbeat", help="write the status file for the Netlify status function (no broker keys needed, no account figures in it)")
+    h.add_argument("--out", default="netlify/site/status.json")
     s = sub.add_parser("standin", help="start the local stand-in Alpaca server")
     s.add_argument("--port", type=int, default=8765)
     return p
@@ -57,6 +59,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     if args.cmd == "standin":
         standin.serve_forever(args.port)
+        return 0
+    if args.cmd == "heartbeat":
+        try:
+            beat = heartbeat.write(cfgmod.load(args.config), Path(args.out))
+        except (cfgmod.ConfigError, OSError) as exc:
+            print(f"config problem: {exc}", file=sys.stderr)
+            return 2
+        print(f"wrote {args.out}: last event {beat['last_event_at']}, kill switch {'engaged' if beat['kill_engaged'] else 'off'}")
         return 0
     try:
         cfg = cfgmod.load(args.config)

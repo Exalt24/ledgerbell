@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ledgerbell status</title>
+<style>
+:root{--bg:#f6f7f9;--fg:#15202b;--muted:#5b6b7a;--ok:#0b7a3b;--bad:#b3261e}
+@media (prefers-color-scheme:dark){:root{--bg:#10151a;--fg:#e7edf3;--muted:#9fb0bf;--ok:#4cc27d;--bad:#ff8a80}}
+body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif}
+main{max-width:34rem;margin:8vh auto}
+h1{font-size:1.2rem;margin:0 0 .25rem}
+.state{font-size:2rem;font-weight:700}
+.ok{color:var(--ok)}.bad{color:var(--bad)}
+p{color:var(--muted);margin:.25rem 0}
+</style>
+</head>
+<body>
+<main>
+<h1>ledgerbell status</h1>
+<p>Reads <a href="/status">/status</a>: 200 while the bot is running, 503 when it has been silent for more than 36 weekday hours.</p>
+<div id="state" class="state">checking</div>
+<p id="detail"></p>
+</main>
+<script>
+fetch("/status").then(function (r) { return r.json().then(function (d) { return [r.status, d]; }); }).then(function (x) {
+  var s = document.getElementById("state");
+  s.textContent = x[1].state;
+  s.className = "state " + (x[0] === 200 ? "ok" : "bad");
+  document.getElementById("detail").textContent = x[1].last_routine ? "last routine: " + x[1].last_routine + ", at " + x[1].last_event_at : (x[1].why || "");
+}).catch(function () {
+  document.getElementById("state").textContent = "unreachable";
+});
+</script>
+</body>
+</html>

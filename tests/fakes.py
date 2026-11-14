@@ -279,3 +279,68 @@ class Twilio:
 
     def stop(self) -> None:
         self._s.stop()
+
+
+AWS_KEY_ID, AWS_SECRET = "AKIA" + "T" * 16, "aws-test-secret-" + "s" * 24
+SES_REGION = "ap-southeast-2"
+
+
+class Ses:
+    """POST /v2/email/outbound-emails, the SES v2 SendEmail operation, written from the AWS documentation.
+
+    The request is signed with AWS Signature Version 4 for the service `ses`; the stand-in checks the Credential scope in the Authorization header
+    (access key, region, service) and that a signature and a date are present, and does not recompute the signature. A new account is in the
+    sandbox: the sender and every recipient must be verified identities, or the answer is 400 MessageRejected "Email address is not verified".
+    An error is JSON {"message": ...} with the code in the x-amzn-ErrorType header.
+    """
+
+    def __init__(self):
+        self.sent: list[dict] = []
+        self.requests: list[dict] = []
+        self.verified = {"owner@example.com", "alerts@example.com"}
+        self.throttle = False
+        me = self
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _error(self, status: int, code: str, message: str) -> None:
+                _send(self, status, {"message": message}, {"x-amzn-ErrorType": code})
+
+            def do_POST(self):  # noqa: N802
+                path = urlparse(self.path).path
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                auth = self.headers.get("Authorization") or ""
+                me.requests.append({"path": path, "authorization": auth, "date": self.headers.get("X-Amz-Date"), "raw": raw.decode()})
+                scope = f"Credential={AWS_KEY_ID}/"
+                if not auth.startswith("AWS4-HMAC-SHA256 ") or scope not in auth or "Signature=" not in auth or not self.headers.get("X-Amz-Date"):
+                    return self._error(403, "UnrecognizedClientException", "The security token included in the request is invalid.")
+                if f"/{SES_REGION}/ses/aws4_request" not in auth:
+                    return self._error(403, "SignatureDoesNotMatch", "Credential should be scoped to the region and service ses.")
+                if path != "/v2/email/outbound-emails":
+                    return self._error(404, "NotFoundException", "The requested resource was not found")
+                if me.throttle:
+                    return self._error(400, "TooManyRequestsException", "Maximum sending rate exceeded.")
+                try:
+                    req = json.loads(raw)
+                    sender = req["FromEmailAddress"]
+                    to = req["Destination"]["ToAddresses"]
+                    simple = req["Content"]["Simple"]
+                    subject, text = simple["Subject"]["Data"], simple["Body"]["Text"]["Data"]
+                except (ValueError, KeyError, TypeError):
+                    return self._error(400, "BadRequestException", "Missing or malformed fields")
+                if "\n" in subject or not subject or not text:
+                    return self._error(400, "BadRequestException", "Subject must be one non-empty line and the body must not be empty")
+                bad = [a for a in [sender, *to] if a not in me.verified]
+                if bad:
+                    text = f"Email address is not verified. The following identities failed the check in region {SES_REGION.upper()}: "
+                    return self._error(400, "MessageRejected", text + ", ".join(bad))
+                me.sent.append({"from": sender, "to": to, "subject": subject, "text": text})
+                _send(self, 200, {"MessageId": f"0100019{len(me.sent):08d}-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee-000000"})
+
+        self._s = _Server(H)
+        self.url = self._s.url
+
+    def stop(self) -> None:
+        self._s.stop()

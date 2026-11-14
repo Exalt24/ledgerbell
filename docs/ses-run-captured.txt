@@ -1,0 +1,6 @@
+ledgerbell SES check, 2026-11-14T21:32:07+00:00
+region: ap-southeast-2
+caller: IAM user/tf-deployer
+account: sending enabled True, production access False (sandbox True), quota 200.0 per 24 hours, 1.0 per second
+identity danielalexiscruz.pro@gmail.com: verified
+sent: one alert, SES MessageId 010801a1dbf99887-b3616ccb-1ac8-4cf0-8c60-b723742d6070-000000

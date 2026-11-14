@@ -1,0 +1,11 @@
+ledgerbell Modal check, 2026-11-14T21:40:59+00:00
+endpoint: https://exalt24--ledgerbell-api-web.us-east.modal.run
+PASS  GET /health first call 200 in 4648 ms (a cold start when the app was idle)
+GET /health five warm calls: median 1069 ms, range 1001 to 1130 ms
+PASS  GET /docs is 404 (the interactive docs are off)
+PASS  POST /risk/check with no key is 401
+PASS  POST /risk/check with a wrong key is 401
+PASS  risk: 10 SPY at 500 allowed with a stop at 485.0 (1161 ms)
+PASS  risk: 100 SPY cut to 10 by the 5 percent size limit
+PASS  risk: GME refused, not on the watchlist
+PASS  alert: POST /alerts answered {'sent': True, 'problems': []} in 2743 ms, one mail through SES

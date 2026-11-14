@@ -72,6 +72,10 @@ class AlertSettings:
     sms_to: str = ""  # a text message to this number (E.164, +15558675310) through Twilio; TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in the environment
     sms_from: str = ""  # a Twilio number the account owns
     twilio_url: str = "https://api.twilio.com"
+    ses_to: str = ""  # an alert by Amazon SES to this address; AWS credentials come from the usual AWS environment or shared credentials file, never from here
+    ses_from: str = ""  # a sender address or domain verified in SES (in the SES sandbox the recipient must be verified too)
+    ses_region: str = ""  # empty means the AWS default region
+    ses_endpoint_url: str = ""  # empty means the real SES endpoint; tests point it at a local stand-in
 
 
 @dataclass(frozen=True)
