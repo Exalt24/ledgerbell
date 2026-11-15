@@ -68,11 +68,51 @@ python scripts/breakages.py                 # named deliberate breakages
 
 ## Tests
 
-@@TESTS@@
+`cargo test` prints 125 unit tests, 51 integration tests (17 for the order book client, 31 for the fleet against its stand ins in one process, 3 that use real operating system processes) and 18 property tests, 194 tests with 0 failed. The three fleet test files were then run 20 times in a row: 20 runs, every one exit code 0.
+
+* **Unit.** The book (a crossed delta is refused and the book is left untouched, a zero size removes a level, a stale or out of order delta is refused, a gap names the id it expected), `delta_position`, the frame parser, the backoff, the join of a snapshot with its buffered deltas. And for the fleet: sequence ids, each guard, the failover state machine, the Protobuf round trips, the SQLite store (WAL read back from the database, only the next command may finish, a resumed order spends no nonce, two connections on two threads never get the same nonce), EIP-712 against the public Mail example, the Polymarket shaped order and its amounts.
+* **Property** (proptest, 512 cases each). The book against an independent `BTreeMap` model, and a follower order never going past its cap. For the fleet: exactly one verdict per sequence id; a receiver that applies the next id, drops repeats and asks for a replay at a hole ends with every id once and in order whatever holes and repeats it was sent; the ladder never leaves its bounds, more misses never tighten it, more fills never widen it, a deeper book never widens it; a move in the follower's favour is never refused by the momentum filter and a looser threshold accepts what a tighter one accepted; a fill is stable exactly when it has not changed for the window, checked against a model that works from the readings alone; the circuit breaker keeps its rules under any sequence of calls (no call let through before the cooldown, one probe at a time, failures below the threshold in the closed state); failover stays in range and its waits stay inside the limits; a signature recovers to its signer and to no other address; signing is deterministic; order amounts never imply a price worse than the limit.
+* **Integration, one process.** The order book client against its stand in (a connection killed mid stream twice, a dropped delta, refused connections, a silent server, a slow consumer, garbage frames). The fleet: the C2's routes; a raw WebSocket client seeing Protobuf commands with rising sequence ids held back by a window; a worker applying 30 commands once and in order with every nonce used once; a hole in the sequence found and replayed once; a repeated frame dropped; the worker reconnecting when its C2 dies and comes back; failing over to a second address; giving up on a server that accepts and never speaks; stopping a worker task and starting another on the same database; the momentum filter skipping a buy after a run up; a fill that keeps changing not counting until it settles and one that never settles not counting at all; the ladder widening on a thin book and after misses and tightening after clean fills; the breaker opening after failed posts and closing after its cooldown through one probe; an order the exchange refuses being final and not retried; a post that fails twice being sent a third time with the same bytes; the CLOB stand in refusing a wrong signature, a maker that is not the signer and a reused salt.
+* **Integration, real processes.** `fleet_process.rs` starts the `bookwatch` binary as C2s and workers. A worker process is killed with the operating system's kill after at least 15 commands and a new one on the same database finishes the rest of the 120. A worker process is made to exit (code 86) right after the CLOB stand in took the order for command 7 and before it wrote that down; the new process finds command 7's order stored as pending, posts the same bytes again, the stand in keeps one order for it (`posts` is 2 for it), and 30 commands end with 30 results, nonces 1 to the last with no hole and no repeat. A C2 process is killed with the worker connected to it; the worker fails over to the second C2 process and finishes all 120 commands. [docs/fleet-demo-captured.txt](docs/fleet-demo-captured.txt) is the same thing as a demo.
+* **Mutation.** `cargo mutants` (27.1.0) on the whole crate, one run of about 21 minutes: 491 mutants, 239 caught, 250 that did not compile, 1 timeout and 1 missed. The timeout replaces `next += 1` with `next *= 1` in the worker loop, so the worker resends one command forever and the test run hangs until the time limit cuts it. The missed one replaces `>` with `>=` in the C2's idle timeout check; an elapsed time in nanoseconds is never exactly equal to the limit, so the two behave the same. Earlier runs left survivors and each one became a test, which is why the count of tests grew; the lists are in [docs/mutants-captured.txt](docs/mutants-captured.txt).
 
 ## Numbers
 
-@@NUMBERS@@
+All on the machine named above, in release mode, loopback, the database on the C: drive. Printed as is in [docs/latency-captured.txt](docs/latency-captured.txt), [docs/bench-captured.txt](docs/bench-captured.txt) and [docs/bench-fleet-captured.txt](docs/bench-fleet-captured.txt).
+
+**The fleet pieces**, `cargo bench --bench fleet`, criterion, one iteration is one operation (the middle number of each range):
+
+| operation | time | about, per second |
+|---|---|---|
+| sequence id check (apply, duplicate or gap) | 4.9098 ns | 204 million |
+| SQLite, store a command's result and move `last_acked` (WAL, `synchronous=NORMAL`) | 43.329 µs | 23,000 |
+| SQLite, take a nonce and store an order in one transaction (same settings) | 68.885 µs | 14,500 |
+| SQLite, a whole command: order, fill and result (same settings) | 209.01 µs | 4,800 |
+| the same result write with `synchronous=FULL` | 3.2006 ms | 312 |
+| the same nonce and order write with `synchronous=FULL` | 3.0594 ms | 327 |
+| EIP-712: hash a Polymarket shaped order (domain separator, struct hash, digest) | 7.5100 µs | 133,000 |
+| EIP-712: sign the 32 byte digest | 46.959 µs | 21,000 |
+| EIP-712: hash and sign an order | 55.219 µs | 18,000 |
+| EIP-712: recover the signer from a signature | 137.79 µs | 7,300 |
+
+The write path is the SQLite one with the default flush: a commit that survives a killed process but not a power cut. With `FULL`, every commit waits for the disk and the rate falls by about 70 times on this drive. These are the costs of this code on this desktop, not a trading latency: a worker also waits for an HTTP round trip to the exchange and for the fill to settle.
+
+**The order book client**, `cargo bench`, criterion, 10,000 deltas of four updates each on a book of 1,000 levels a side:
+
+| | time for 10,000 deltas | throughput |
+|---|---|---|
+| `OrderBook::apply` | [1.9759 ms 2.0190 ms 2.0637 ms] | [4.8456 Melem/s 4.9530 Melem/s 5.0611 Melem/s] |
+| parse the JSON frame, then apply | [16.250 ms 16.701 ms 17.153 ms] | [582.98 Kelem/s 598.78 Kelem/s 615.39 Kelem/s] |
+
+`cargo run --release --example latency`, three runs, the time from the stand in handing a delta to its connections until the client's event shows the new best bid. 5,000 deltas, each one tick above the last best bid, one at a time:
+
+| run | min | p50 | p90 | p99 | max | mean |
+|---|---|---|---|---|---|---|
+| 1 | 12.5µs | 24.3µs | 52.8µs | 72.3µs | 1.6897ms | 30.988µs |
+| 2 | 12.6µs | 26.4µs | 53.3µs | 86.5µs | 175.6µs | 31.594µs |
+| 3 | 10.5µs | 32.9µs | 56.8µs | 76.2µs | 1.0873ms | 36.371µs |
+
+And the same 5,000 deltas sent as fast as the stand in can: 117,573, 112,662 and 107,781 deltas per second from the first send until the last delta is in the client's book, with no event dropped. The time includes serializing the frame, the loopback TCP hop, a websocket frame each way, JSON parsing, the book update and the event reaching the consumer task.
 
 ## Limits
 

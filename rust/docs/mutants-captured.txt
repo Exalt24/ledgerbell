@@ -55,3 +55,11 @@ Unviable mutants of the last run (the replacement did not compile, so there is n
   src/proto.rs:47:5: replace err -> Result<T, ProtoError> with Ok(Default::default())
   src/proto.rs:51:5: replace levels -> Result<Vec<Level>, ProtoError> with Ok(vec![Default::default()])
   src/proto.rs:75:5: replace parse -> Result<Inbound, ProtoError> with Ok(Default::default())
+
+=== final run on the whole crate (cargo-mutants 27.1.0, started 2026-11-15T17:41:41.3125142Z, ended 2026-11-15T18:02:55.3451844Z) ===
+491 mutants: 239 caught, 1 missed, 1 timeout, 250 unviable (did not compile)
+missed:
+  src/c2.rs:387:30: replace > with >= in serve_worker
+timeout:
+  src/c2.rs:385:18: replace += with *= in serve_worker
+note: the missed one replaces `>` with `>=` in the idle timeout test of the C2's worker loop; the elapsed time is a Duration measured in nanoseconds, so it is never exactly equal to the limit and the two comparisons behave the same (an equivalent mutant). The timeout one replaces `next += 1` with `next *= 1`, so the worker loop never advances and resends the same command forever; the test run hangs and is cut by the time limit, which cargo-mutants reports as a timeout and the suite notices as a hang.
