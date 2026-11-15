@@ -277,16 +277,25 @@ pub async fn demo() {
         nonces.first().unwrap_or(&0),
         nonces.last().unwrap_or(&0)
     );
+    let nonces_ok = nonces.windows(2).all(|p| p[1] == p[0] + 1) && nonces.first() == Some(&1);
     println!(
         "CLOB stand-in saw {} POSTs for {} distinct orders; every nonce used once: {}",
         posts,
         received.len(),
-        nonces.windows(2).all(|p| p[1] == p[0] + 1) && nonces.first() == Some(&1)
+        nonces_ok
     );
+    let ok = nonces_ok
+        && received.len() == nonces.len()
+        && s.result_count().unwrap() == N
+        && s.journal_mode().unwrap() == "wal";
     let _ = w.kill();
     let _ = w.wait();
     let _ = c2b.kill();
     let _ = c2b.wait();
     drop(s);
     let _ = std::fs::remove_dir_all(&dir);
+    if !ok {
+        eprintln!("the demo's own checks failed");
+        std::process::exit(1);
+    }
 }

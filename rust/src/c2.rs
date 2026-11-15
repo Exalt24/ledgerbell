@@ -124,6 +124,8 @@ pub struct WorkerInfo {
     pub replays_served: u64,
     pub anomalies: u64,
     pub log_len: u64,
+    /// Unix milliseconds of the last frame from the worker.
+    pub last_seen_ms: u64,
     pub outcomes: BTreeMap<String, u64>,
 }
 
@@ -141,6 +143,7 @@ impl WorkerInfo {
             "replays_served": self.replays_served,
             "inbound_seq_anomalies": self.anomalies,
             "commands_in_log": self.log_len,
+            "last_seen_ms": self.last_seen_ms,
             "outcomes": self.outcomes,
         })
     }
@@ -181,6 +184,7 @@ impl C2State {
             replays_served: e.replays_served,
             anomalies: e.anomalies + e.protocol_errors,
             log_len: e.log.len() as u64,
+            last_seen_ms: e.last_seen_ms,
             outcomes: e.outcomes.clone(),
         }
     }

@@ -22,12 +22,10 @@ pub fn classify(last_acked: u64, incoming: u64) -> SeqVerdict {
     let Some(expected) = last_acked.checked_add(1) else {
         return SeqVerdict::Duplicate;
     };
-    if incoming == expected {
-        SeqVerdict::Apply
-    } else if incoming < expected {
-        SeqVerdict::Duplicate
-    } else {
-        SeqVerdict::Gap { expected }
+    match incoming.cmp(&expected) {
+        std::cmp::Ordering::Equal => SeqVerdict::Apply,
+        std::cmp::Ordering::Less => SeqVerdict::Duplicate,
+        std::cmp::Ordering::Greater => SeqVerdict::Gap { expected },
     }
 }
 

@@ -37,3 +37,8 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Test
         run: cargo test
+      # Real processes: two C2s and a worker, the worker killed and restarted, then the first C2 killed.
+      # It exits non zero when its own checks fail. The SQLite library is built from source (bundled), so
+      # the runner's C compiler is enough; no protoc is needed because build.rs uses protox.
+      - name: Fleet demo
+        run: cargo run --release --bin bookwatch -- fleet-demo

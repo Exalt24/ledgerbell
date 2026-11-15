@@ -8,7 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -391,7 +391,10 @@ struct ClobState {
     order_seq: Mutex<Vec<String>>,
     salts: Mutex<HashSet<(String, u64)>>,
     fail_posts: AtomicU32,
+    refuse_posts: AtomicU32,
+    refuse_with_ok_status: AtomicBool,
     posts_received: AtomicU64,
+    post_times: Mutex<Vec<std::time::Instant>>,
     rejected: AtomicU64,
     polls: AtomicU64,
 }
@@ -421,7 +424,10 @@ impl ClobStandIn {
             order_seq: Mutex::new(Vec::new()),
             salts: Mutex::new(HashSet::new()),
             fail_posts: AtomicU32::new(0),
+            refuse_posts: AtomicU32::new(0),
+            refuse_with_ok_status: AtomicBool::new(false),
             posts_received: AtomicU64::new(0),
+            post_times: Mutex::new(Vec::new()),
             rejected: AtomicU64::new(0),
             polls: AtomicU64::new(0),
         });
@@ -479,8 +485,21 @@ impl ClobStandIn {
         self.state.fail_posts.store(n, Ordering::SeqCst);
     }
 
+    /// The next `n` `POST /order` calls are refused with `success: false` and an error message, with HTTP
+    /// status 400, or 200 when `with_ok_status` is true. The order is not recorded.
+    pub fn refuse_next_posts(&self, n: u32, with_ok_status: bool) {
+        self.state.refuse_with_ok_status.store(with_ok_status, Ordering::SeqCst);
+        self.state.refuse_posts.store(n, Ordering::SeqCst);
+    }
+
     pub fn posts_received(&self) -> u64 {
         self.state.posts_received.load(Ordering::SeqCst)
+    }
+
+    /// The time between each `POST /order` and the one before it.
+    pub fn post_gaps(&self) -> Vec<Duration> {
+        let t = self.state.post_times.lock().unwrap();
+        t.windows(2).map(|w| w[1].duration_since(w[0])).collect()
     }
 
     pub fn rejected(&self) -> u64 {
@@ -549,6 +568,7 @@ fn reject(st: &ClobState, msg: &str) -> (StatusCode, Json<Json_>) {
 
 async fn post_order(State(st): State<Arc<ClobState>>, Json(body): Json<Json_>) -> (StatusCode, Json<Json_>) {
     st.posts_received.fetch_add(1, Ordering::SeqCst);
+    st.post_times.lock().unwrap().push(std::time::Instant::now());
     let latency = st.cfg.lock().unwrap().post_latency;
     if !latency.is_zero() {
         tokio::time::sleep(latency).await;
@@ -570,6 +590,31 @@ async fn post_order(State(st): State<Arc<ClobState>>, Json(body): Json<Json_>) -
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": "Internal server error"})),
+        );
+    }
+    let refusing = loop {
+        let n = st.refuse_posts.load(Ordering::SeqCst);
+        if n == 0 {
+            break false;
+        }
+        if st
+            .refuse_posts
+            .compare_exchange(n, n - 1, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            break true;
+        }
+    };
+    if refusing {
+        st.rejected.fetch_add(1, Ordering::SeqCst);
+        let status = if st.refuse_with_ok_status.load(Ordering::SeqCst) {
+            StatusCode::OK
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        return (
+            status,
+            Json(json!({"success": false, "errorMsg": "refused by the stand in", "orderID": "", "status": ""})),
         );
     }
     let (order, sig) = match Order::from_wire(&body) {
@@ -876,5 +921,40 @@ mod tests {
     #[test]
     fn a_chunked_body_is_joined() {
         assert_eq!(dechunk("5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n"), "hello world");
+    }
+
+    #[test]
+    fn a_chunked_body_stops_at_the_zero_chunk_and_at_a_truncated_one() {
+        assert_eq!(
+            dechunk("3\r\nabc\r\n0\r\n\r\n4\r\nmore\r\n"),
+            "abc",
+            "nothing after the zero chunk counts"
+        );
+        assert_eq!(
+            dechunk("5\r\nhello"),
+            "hello",
+            "a last chunk with no trailing CRLF is whole"
+        );
+        assert_eq!(
+            dechunk("9\r\nhello"),
+            "",
+            "a chunk shorter than it says is dropped, not sliced"
+        );
+        assert_eq!(dechunk("zz\r\nabc"), "");
+    }
+
+    #[test]
+    fn the_order_errors_say_what_was_wrong() {
+        let a = amounts(OrderSide::Buy, f("0.0000001"), f("0.5")).unwrap_err();
+        assert!(a.to_string().contains("rounds to nothing"), "{a}");
+        let z = amounts(OrderSide::Buy, f("1"), Fixed::ZERO).unwrap_err();
+        assert!(z.to_string().contains("rounds to nothing"), "{z}");
+        let c = amounts(OrderSide::Buy, f("0.000001"), f("0.0001")).unwrap_err();
+        assert!(c.to_string().contains("costs nothing"), "{c}");
+        assert_eq!(OrderError::Wire("x".into()).to_string(), "bad order: x");
+        assert_eq!(
+            OrderError::Sign(Eip712Error::UnknownType("T".into())).to_string(),
+            "unknown type T"
+        );
     }
 }

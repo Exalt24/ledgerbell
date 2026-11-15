@@ -8,3 +8,5 @@ config.toml
 .env
 build/
 dist/
+mutants.out/
+mutants.out.old/

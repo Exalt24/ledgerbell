@@ -110,6 +110,11 @@ impl Store {
         Ok(self.conn.query_row("PRAGMA journal_mode", [], |r| r.get(0))?)
     }
 
+    /// SQLite's `synchronous` setting: 1 is NORMAL, 2 is FULL.
+    pub fn synchronous(&self) -> Result<i64> {
+        Ok(self.conn.query_row("PRAGMA synchronous", [], |r| r.get(0))?)
+    }
+
     /// The highest command id whose result is stored. 0 before the first.
     pub fn last_acked(&self) -> Result<u64> {
         let v: Option<i64> = self
@@ -373,6 +378,17 @@ mod tests {
     }
 
     #[test]
+    fn full_sync_is_what_was_asked_for() {
+        let p = tmp("sync");
+        let normal = Store::open(&p, false).unwrap();
+        assert_eq!(normal.synchronous().unwrap(), 1);
+        let full = Store::open(&p, true).unwrap();
+        assert_eq!(full.synchronous().unwrap(), 2);
+        drop((normal, full));
+        cleanup(&p);
+    }
+
+    #[test]
     fn last_acked_starts_at_zero_and_only_the_next_command_can_finish() {
         let p = tmp("ack");
         let mut s = Store::open(&p, false).unwrap();
@@ -407,6 +423,7 @@ mod tests {
         let s = Store::open(&p, false).unwrap();
         assert_eq!(s.last_acked().unwrap(), 1);
         assert_eq!(s.orders_sent().unwrap(), 1);
+        assert_eq!(s.order_count().unwrap(), 1);
         assert_eq!(s.fills_seen().unwrap(), 1);
         let o = s.order_for(1).unwrap().unwrap();
         assert_eq!((o.state.as_str(), o.clob_id.as_deref()), ("done", Some("id1")));
@@ -439,6 +456,9 @@ mod tests {
         assert!(resumed2);
         assert_eq!(o2, o1);
         assert_eq!(s.next_nonce("0xw").unwrap(), 2, "the resume did not use up a nonce");
+        assert_eq!(s.order_count().unwrap(), 1);
+        s.begin_order(6, "0xw", build).unwrap();
+        assert_eq!(s.order_count().unwrap(), 2);
         drop(s);
         cleanup(&p);
     }
@@ -513,5 +533,16 @@ mod tests {
         assert_eq!(n.len(), 200);
         drop(s);
         cleanup(&p);
+    }
+
+    #[test]
+    fn the_error_texts_say_what_happened() {
+        assert_eq!(
+            StoreError::OutOfOrder { last_acked: 3, seq: 9 }.to_string(),
+            "command 9 finished while the last stored result is 3"
+        );
+        assert_eq!(StoreError::Build("no".into()).to_string(), "order not built: no");
+        let sql = StoreError::from(rusqlite::Error::QueryReturnedNoRows);
+        assert!(sql.to_string().starts_with("sqlite: "), "{sql}");
     }
 }

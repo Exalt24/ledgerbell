@@ -19,8 +19,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from breakages_fleet import FLEET_BREAKAGES  # noqa: E402
+
 CRATE = Path(__file__).resolve().parents[1]
-KEEP = ["src", "tests", "benches", "examples", "Cargo.toml", "Cargo.lock"]
+KEEP = ["src", "tests", "benches", "examples", "proto", "build.rs", "Cargo.toml", "Cargo.lock"]
 
 BREAKAGES = [
     # -- the book
@@ -56,8 +59,27 @@ BREAKAGES = [
     ("proto.rs", "a level price must be a string", '.ok_or_else(|| ProtoError(format!("{what}: price is not a string")))?;', '.unwrap_or("0");'),
 ]
 
+BREAKAGES = BREAKAGES + FLEET_BREAKAGES
+
 
 def main() -> int:
+    """`--check` only checks that every anchor matches once. `--shard K/N` runs every Nth breakage from K."""
+    if "--check" in sys.argv:
+        bad = 0
+        for fname, name, anchor, _ in BREAKAGES:
+            text = (CRATE / "src" / fname).read_text(encoding="utf-8").replace("\r\n", "\n")
+            if text.count(anchor) != 1:
+                print(f"stale   {fname}: {name} (anchor found {text.count(anchor)} times)")
+                bad += 1
+        print(f"{len(BREAKAGES)} breakages, {bad} stale anchors")
+        return 1 if bad else 0
+    todo = BREAKAGES
+    for i, a in enumerate(sys.argv):
+        if a == "--only":
+            todo = [b for b in todo if sys.argv[i + 1] in b[1]]
+    if "--shard" in sys.argv:
+        k, n = sys.argv[sys.argv.index("--shard") + 1].split("/")
+        todo = [b for i, b in enumerate(BREAKAGES) if i % int(n) == int(k)]
     work = Path(tempfile.mkdtemp(prefix="bookwatch-breakages-"))
     target = Path(tempfile.gettempdir()) / "bookwatch-breakages-target"
     copy = work / "crate"
@@ -65,9 +87,9 @@ def main() -> int:
     for name in KEEP:
         src = CRATE / name
         if src.is_dir():
-            shutil.copytree(src, copy / name)
+            shutil.copytree(src, copy / name, copy_function=shutil.copy)
         elif src.exists():
-            shutil.copy2(src, copy / name)
+            shutil.copy(src, copy / name)
     env = dict(os.environ, CARGO_TARGET_DIR=str(target), CARGO_TERM_COLOR="never")
 
     def run_tests() -> tuple[int, str]:
@@ -83,7 +105,7 @@ def main() -> int:
         return 1
 
     caught = survived = stale = broken = 0
-    for fname, name, anchor, replacement in BREAKAGES:
+    for fname, name, anchor, replacement in todo:
         path = copy / "src" / fname
         original = path.read_text(encoding="utf-8").replace("\r\n", "\n")
         if original.count(anchor) != 1:
@@ -102,7 +124,7 @@ def main() -> int:
         else:
             print(f"caught  {fname}: {name}")
             caught += 1
-    total = len(BREAKAGES)
+    total = len(todo)
     print(f"\n{total} breakages: {caught} caught, {survived} survived, {stale} stale anchors, {broken} do not compile")
     shutil.rmtree(work, ignore_errors=True)
     return 0 if survived == stale == broken == 0 else 1

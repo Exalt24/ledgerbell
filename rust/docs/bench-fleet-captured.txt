@@ -1,0 +1,24 @@
+cargo bench --bench fleet, 2026-11-16, release profile, criterion 0.5, one iteration is one operation. Machine: AMD Ryzen 7 9800X3D (8 cores, 16 threads), 62 GB memory, Windows 11 Pro, rustc 1.99.1, the database in the temp directory of the C: drive. Lines are exactly as criterion printed them.
+
+seq/classify the next id
+time:   [4.8840 ns 4.9098 ns 4.9365 ns]
+sqlite/store a command result and move last_acked (wal normal sync)
+time:   [42.057 µs 43.329 µs 44.851 µs]
+sqlite/take a nonce and store an order, one transaction (wal normal sync)
+time:   [67.140 µs 68.885 µs 70.615 µs]
+sqlite/store a command result and move last_acked (wal full sync)
+time:   [3.1020 ms 3.2006 ms 3.3390 ms]
+sqlite/take a nonce and store an order, one transaction (wal full sync)
+time:   [2.9731 ms 3.0594 ms 3.1686 ms]
+sqlite/one whole command: order, fill and result (wal normal sync)
+time:   [201.37 µs 209.01 µs 217.38 µs]
+eip712/hash a Polymarket shaped order (domain, struct, digest)
+time:   [7.4393 µs 7.5100 µs 7.5829 µs]
+eip712/sign a 32 byte digest (secp256k1)
+time:   [46.740 µs 46.959 µs 47.194 µs]
+eip712/hash and sign an order
+time:   [54.872 µs 55.219 µs 55.598 µs]
+eip712/recover the signer from a signature
+time:   [136.15 µs 137.79 µs 139.35 µs]
+eip712/keccak256 of 64 bytes
+time:   [242.46 ns 243.61 ns 244.87 ns]

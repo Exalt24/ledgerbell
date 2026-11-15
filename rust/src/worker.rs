@@ -466,11 +466,8 @@ impl Worker {
                 true,
             ));
         }
-        let change = (cmd.leader_after as i128 - cmd.leader_before as i128).unsigned_abs();
-        let wanted = Fixed(
-            u64::try_from(change * self.cfg.follow.ratio_num as u128 / self.cfg.follow.ratio_den.max(1) as u128)
-                .unwrap_or(u64::MAX),
-        );
+        let change = leader_change(cmd.leader_before, cmd.leader_after);
+        let wanted = wanted_qty(change, self.cfg.follow.ratio_num, self.cfg.follow.ratio_den);
         let depth = depth_within(take_side, side, best.price, self.cfg.ladder.max_bps);
         let bps = self.cfg.ladder.allowed_bps(&LadderInput {
             depth,
@@ -553,7 +550,13 @@ impl Worker {
                             accepted = v["orderID"].as_str().map(str::to_string);
                             break;
                         }
-                        _ => {
+                        Ok(v) => {
+                            // A 200 that says `success: false` is the exchange refusing the order.
+                            self.store.mark_failed(seq)?;
+                            let msg = v["errorMsg"].as_str().unwrap_or("no reason given");
+                            return Ok(done(Outcome::Rejected, format!("rejected: {msg}"), true));
+                        }
+                        Err(_) => {
                             last_error = format!("unreadable answer: {body}");
                             break;
                         }
@@ -657,6 +660,16 @@ impl Worker {
     }
 }
 
+/// How far the leader's position moved, as a size in 1e-8 units.
+pub fn leader_change(before: i64, after: i64) -> u128 {
+    (after as i128 - before as i128).unsigned_abs()
+}
+
+/// The follower's wanted size: `change * num / den`, with a zero denominator read as one.
+pub fn wanted_qty(change: u128, ratio_num: u64, ratio_den: u64) -> Fixed {
+    Fixed(u64::try_from(change * ratio_num as u128 / ratio_den.max(1) as u128).unwrap_or(u64::MAX))
+}
+
 /// The size resting on the taking side at prices no worse than `max_bps` from the best price.
 pub fn depth_within(levels: &[Level], side: OrderSide, best: Fixed, max_bps: u32) -> Fixed {
     let b = best.0 as u128;
@@ -757,6 +770,27 @@ mod tests {
         let bids = [lv("0.50", "10"), lv("0.496", "5"), lv("0.49", "100")];
         assert_eq!(depth_within(&bids, OrderSide::Sell, f("0.50"), 100), f("15"));
         assert_eq!(depth_within(&bids, OrderSide::Sell, f("0.50"), 0), f("10"));
+    }
+
+    #[test]
+    fn the_leaders_change_is_the_distance_between_the_positions_either_way() {
+        assert_eq!(leader_change(100, 350), 250);
+        assert_eq!(leader_change(350, 100), 250);
+        assert_eq!(leader_change(-100, 100), 200);
+        assert_eq!(leader_change(i64::MIN, i64::MAX), u64::MAX as u128);
+    }
+
+    #[test]
+    fn the_wanted_size_is_the_change_times_the_ratio() {
+        assert_eq!(wanted_qty(700, 3, 7), Fixed(300));
+        assert_eq!(wanted_qty(100, 1, 10), Fixed(10));
+        assert_eq!(wanted_qty(100, 2, 1), Fixed(200));
+        assert_eq!(wanted_qty(100, 1, 0), Fixed(100), "a zero denominator is read as one");
+        assert_eq!(
+            wanted_qty(u128::from(u64::MAX) * 4, 1, 1),
+            Fixed(u64::MAX),
+            "too large saturates"
+        );
     }
 
     #[test]

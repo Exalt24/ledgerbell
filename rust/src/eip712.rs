@@ -114,7 +114,7 @@ pub fn hex_decode(s: &str) -> Result<Vec<u8>, Eip712Error> {
     };
     s.as_bytes()
         .chunks(2)
-        .map(|p| Ok(digit(p[0])? << 4 | digit(p[1])?))
+        .map(|p| Ok((digit(p[0])? << 4) + digit(p[1])?))
         .collect()
 }
 
@@ -429,6 +429,19 @@ mod tests {
     }
 
     #[test]
+    fn nested_types_are_listed_after_the_primary_in_alphabetical_order() {
+        let mut t = mail();
+        t.types.insert("Zeta".into(), vec![field("z", "uint256")]);
+        t.types.insert("Alpha".into(), vec![field("a", "uint256")]);
+        t.types.get_mut("Mail").unwrap().push(field("z", "Zeta"));
+        t.types.get_mut("Mail").unwrap().push(field("a", "Alpha"));
+        assert_eq!(
+            t.encode_type("Mail").unwrap(),
+            "Mail(Person from,Person to,string contents,Zeta z,Alpha a)Alpha(uint256 a)Person(string name,address wallet)Zeta(uint256 z)"
+        );
+    }
+
+    #[test]
     fn encode_type_matches_the_example() {
         assert_eq!(
             mail().encode_type("Mail").unwrap(),
@@ -647,5 +660,70 @@ mod tests {
         assert_eq!(recover_address(&d, &sig).unwrap(), w.address());
         let (w2, _) = Wallet::throwaway();
         assert_ne!(w.address(), w2.address());
+    }
+
+    #[test]
+    fn the_error_texts_name_the_problem() {
+        let cases = [
+            (Eip712Error::UnknownType("T".into()), "unknown type T"),
+            (
+                Eip712Error::MissingField {
+                    ty: "T".into(),
+                    field: "x".into(),
+                },
+                "T has no value for x",
+            ),
+            (
+                Eip712Error::WrongValue {
+                    ty: "T".into(),
+                    field: "x".into(),
+                    want: "a bool".into(),
+                },
+                "T.x: expected a bool",
+            ),
+            (Eip712Error::Unsupported("u7".into()), "type u7 is not supported"),
+            (Eip712Error::BadHex("zz".into()), "bad hex: zz"),
+            (Eip712Error::BadNumber("1a".into()), "bad number: 1a"),
+            (Eip712Error::BadSignature("short".into()), "bad signature: short"),
+        ];
+        for (e, text) in cases {
+            assert_eq!(e.to_string(), text);
+        }
+    }
+
+    #[test]
+    fn a_value_of_the_wrong_kind_for_a_uint_or_bytes_member_is_a_wrong_value_not_an_unsupported_type() {
+        assert!(matches!(
+            one_field("bool", Value::uint(1)),
+            Err(Eip712Error::WrongValue { .. })
+        ));
+        assert!(matches!(
+            one_field("address", Value::uint(1)),
+            Err(Eip712Error::WrongValue { .. })
+        ));
+        assert!(matches!(
+            one_field("uint8", Value::Bytes(vec![1])),
+            Err(Eip712Error::WrongValue { .. })
+        ));
+        assert!(matches!(
+            one_field("bool", Value::Bytes(vec![1])),
+            Err(Eip712Error::WrongValue { .. })
+        ));
+    }
+
+    #[test]
+    fn every_hex_digit_decodes_to_its_value() {
+        assert_eq!(
+            hex_decode("0123456789abcdefABCDEF").unwrap(),
+            vec![0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xAB, 0xCD, 0xEF]
+        );
+        assert_eq!(hex_decode("10").unwrap(), vec![16]);
+        assert_eq!(hex_decode("01").unwrap(), vec![1]);
+        assert!(hex_decode("g0").is_err());
+        assert!(hex_decode("0g").is_err());
+        assert!(hex_decode("/0").is_err());
+        assert!(hex_decode("0:").is_err());
+        assert!(hex_decode("`0").is_err());
+        assert!(hex_decode("@0").is_err());
     }
 }

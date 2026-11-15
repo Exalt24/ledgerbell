@@ -142,6 +142,24 @@ async fn a_first_frame_that_is_not_a_hello_is_dropped() {
     assert!(c2.workers().is_empty());
 }
 
+#[tokio::test]
+async fn a_hello_that_is_not_numbered_one_is_dropped() {
+    let c2 = c2_with(gen("c2", 3)).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(c2.ws_url()).await.unwrap();
+    let hello = wire::encode(
+        5,
+        Body::Hello(Hello {
+            worker_id: "late".into(),
+            last_acked: 0,
+            wallet: String::new(),
+        }),
+    );
+    ws.send(Message::Binary(hello.into())).await.unwrap();
+    let r = tokio::time::timeout(Duration::from_secs(2), ws.next()).await.unwrap();
+    assert!(matches!(r, None | Some(Err(_)) | Some(Ok(Message::Close(_)))));
+    assert!(c2.workers().is_empty());
+}
+
 // ------------------------------------------------------------------ the worker, in order
 
 #[tokio::test]
@@ -462,6 +480,37 @@ async fn a_thin_book_widens_the_cap_so_the_order_reaches_the_second_level() {
     assert_eq!(s.result_for(1).unwrap().unwrap().0, "filled");
 }
 
+#[tokio::test]
+async fn recent_misses_widen_the_cap_until_the_order_reaches_the_next_level() {
+    // The ask side holds 0.1 at 0.50 and 1000 at 0.5035. The book is deep, so the ladder starts 20 bps under its
+    // base of 50: 30 bps, which stops at 0.5015. Every order is only 40 percent filled, a miss each time, and each
+    // miss adds 25 bps. Command 4 (a buy of 0.4) is sent after three misses: 50 + 75 - 20 = 105 bps, so its limit
+    // is 0.50525 and it takes the second level too.
+    let clob = clob().await;
+    clob.set_book("1001", &[("0.499", "1000")], &[("0.50", "0.1"), ("0.5035", "1000")]);
+    clob.set_fill_plan(vec![40]);
+    let c2 = c2_with(gen("A", 4)).await;
+    let db = TempDb::new("misses");
+    let _w = worker::spawn(fast_cfg("bot-mi", vec![c2.ws_url()], db.path(), &clob.url())).unwrap();
+    wait_until("4 commands", LIMIT, || last_acked(db.path()) == 4).await;
+    let s = db.open();
+    assert_eq!(
+        s.order_for(1).unwrap().unwrap().qty,
+        "0.10000000",
+        "no misses yet: 30 bps"
+    );
+    assert_eq!(
+        s.order_for(2).unwrap().unwrap().qty,
+        "0.10000000",
+        "one miss: 55 bps still stops at 0.5027"
+    );
+    assert_eq!(
+        s.order_for(4).unwrap().unwrap().qty,
+        "0.40000000",
+        "three misses: 105 bps reaches 0.5035"
+    );
+}
+
 // ------------------------------------------------------------------ the CLOB stand-in itself
 
 #[tokio::test]
@@ -533,6 +582,48 @@ async fn the_clob_checks_signatures_and_treats_a_resend_of_the_same_order_as_one
     assert!(b4.contains("salt"));
     assert_eq!(clob.received().len(), 1);
     assert_eq!(clob.rejected(), 2);
+
+    // An EOA order (signature type 0) whose maker is not its signer is refused even with a valid signature.
+    let other_maker = Order {
+        salt: 3,
+        maker: Wallet::throwaway().0.address(),
+        signature_type: 0,
+        ..order.clone()
+    };
+    let (s5, b5) = post(other_maker.to_wire(&other_maker.sign(&w).unwrap()).to_string()).await;
+    assert_eq!(s5, 400, "{b5}");
+    assert!(b5.contains("maker and signer differ"), "{b5}");
+    assert_eq!(clob.received().len(), 1);
+}
+
+#[tokio::test]
+async fn recent_clean_fills_tighten_the_cap_until_a_level_is_out_of_reach() {
+    // The ask side holds 0.1 at 0.50 and 1000 at 0.5012 (24 bps). The book is deep, so the ladder starts at 30 bps
+    // (limit 0.5015, both levels inside). Every order fills fully, and each clean fill takes 5 bps off. Command 1 is
+    // sent after none: 30 bps, a buy of 0.3 takes both levels. Command 4 (a buy of 0.4) is sent after three: 15
+    // bps, limit 0.50075, so the second level is out of reach and the order is for 0.1.
+    let clob = clob().await;
+    clob.set_book("1001", &[("0.499", "1000")], &[("0.50", "0.1"), ("0.5012", "1000")]);
+    let c2 = c2_with(gen("A", 4)).await;
+    let db = TempDb::new("fills");
+    let _w = worker::spawn(fast_cfg("bot-fi", vec![c2.ws_url()], db.path(), &clob.url())).unwrap();
+    wait_until("4 commands", LIMIT, || last_acked(db.path()) == 4).await;
+    let s = db.open();
+    assert_eq!(
+        s.order_for(1).unwrap().unwrap().qty,
+        "0.30000000",
+        "no fills yet: 30 bps"
+    );
+    assert_eq!(
+        s.order_for(2).unwrap().unwrap().qty,
+        "0.50000000",
+        "one fill: 25 bps still reaches 0.5012"
+    );
+    assert_eq!(
+        s.order_for(4).unwrap().unwrap().qty,
+        "0.10000000",
+        "three fills: 15 bps does not"
+    );
 }
 
 #[tokio::test]
@@ -565,4 +656,226 @@ async fn the_clob_serves_a_book_in_the_documented_shape() {
         .unwrap();
     assert_eq!(status, 404);
     let _ = ClobConfig::default();
+}
+
+// ------------------------------------------------------------------ the C2's bookkeeping, seen from a raw client
+
+fn hello_frame(seq: u64, id: &str) -> Message {
+    Message::Binary(
+        wire::encode(
+            seq,
+            Body::Hello(Hello {
+                worker_id: id.into(),
+                last_acked: 0,
+                wallet: "0xabc".into(),
+            }),
+        )
+        .into(),
+    )
+}
+
+#[tokio::test]
+async fn the_registry_counts_commands_sent_bad_frames_and_when_the_worker_was_last_seen() {
+    let c2 = c2_with(gen("c2", 3)).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(c2.ws_url()).await.unwrap();
+    ws.send(hello_frame(1, "raw-book")).await.unwrap();
+    wait_until("the worker is registered", LIMIT, || c2.workers().len() == 1).await;
+    wait_until("three commands sent", LIMIT, || c2.commands_sent() == 3).await;
+
+    // One frame that is not Protobuf, and one heartbeat that repeats frame number 1: two things wrong.
+    ws.send(Message::Binary(vec![0xff; 11].into())).await.unwrap();
+    let beat = wire::encode(1, Body::Heartbeat(wire::Heartbeat::default()));
+    ws.send(Message::Binary(beat.into())).await.unwrap();
+    wait_until("both counted", LIMIT, || c2.worker("raw-book").unwrap().anomalies == 2).await;
+    let w = c2.worker("raw-book").unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert!(
+        w.last_seen_ms + 5_000 > now && w.last_seen_ms <= now,
+        "last seen {} now {now}",
+        w.last_seen_ms
+    );
+    assert_eq!(c2.commands_sent(), 3);
+}
+
+#[tokio::test]
+async fn a_worker_that_goes_quiet_is_dropped_after_the_idle_timeout() {
+    let c2 = c2_with(C2Config {
+        idle_timeout: Duration::from_millis(300),
+        ..gen("c2", 1)
+    })
+    .await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(c2.ws_url()).await.unwrap();
+    ws.send(hello_frame(1, "quiet")).await.unwrap();
+    wait_until("connected", LIMIT, || c2.worker("quiet").is_some_and(|w| w.connected)).await;
+    wait_until("dropped", Duration::from_secs(5), || {
+        c2.worker("quiet").is_some_and(|w| !w.connected)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn dropping_the_c2_closes_its_port_and_so_does_stopping_the_clob() {
+    let c2 = c2_with(gen("c2", 1)).await;
+    let addr = c2.addr();
+    assert!(tokio::net::TcpStream::connect(addr).await.is_ok());
+    drop(c2);
+    wait_until("the C2 port refuses", Duration::from_secs(5), || {
+        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_err()
+    })
+    .await;
+
+    let clob = clob().await;
+    let caddr = clob.addr();
+    assert!(tokio::net::TcpStream::connect(caddr).await.is_ok());
+    clob.stop();
+    wait_until("the CLOB port refuses after stop", Duration::from_secs(5), || {
+        std::net::TcpStream::connect_timeout(&caddr, Duration::from_millis(100)).is_err()
+    })
+    .await;
+
+    let clob2 = common::clob().await;
+    let c2addr = clob2.addr();
+    drop(clob2);
+    wait_until("the CLOB port refuses after drop", Duration::from_secs(5), || {
+        std::net::TcpStream::connect_timeout(&c2addr, Duration::from_millis(100)).is_err()
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn the_clob_answers_after_its_configured_delay_and_counts_every_post() {
+    let clob = clob().await;
+    clob.set_post_latency(Duration::from_millis(200));
+    let start = std::time::Instant::now();
+    let (status, _) = http_request(&clob.url(), "POST", "/order", Some("{}"), Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert_eq!(status, 400, "an empty body is not an order");
+    assert!(
+        start.elapsed() >= Duration::from_millis(190),
+        "answered after {:?}",
+        start.elapsed()
+    );
+    assert_eq!(clob.posts_received(), 1);
+    clob.set_post_latency(Duration::ZERO);
+    let start = std::time::Instant::now();
+    http_request(&clob.url(), "POST", "/order", Some("{}"), Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert!(start.elapsed() < Duration::from_millis(150));
+    assert_eq!(clob.posts_received(), 2);
+    assert_eq!(clob.rejected(), 2);
+}
+
+// ------------------------------------------------------------------ the worker's handling of an unwilling exchange
+
+#[tokio::test]
+async fn a_stopped_or_dropped_worker_handles_no_more_commands() {
+    let clob = clob().await;
+    clob.set_post_latency(Duration::from_millis(5));
+    let c2 = c2_with(gen("A", 400)).await;
+    let (db1, db2) = (TempDb::new("abort"), TempDb::new("drop"));
+    let w1 = worker::spawn(fast_cfg("bot-ab", vec![c2.ws_url()], db1.path(), &clob.url())).unwrap();
+    let w2 = worker::spawn(fast_cfg("bot-dr", vec![c2.ws_url()], db2.path(), &clob.url())).unwrap();
+    wait_until("both are working", LIMIT, || {
+        last_acked(db1.path()) >= 5 && last_acked(db2.path()) >= 5
+    })
+    .await;
+    w1.abort();
+    drop(w2);
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    let (a1, a2) = (last_acked(db1.path()), last_acked(db2.path()));
+    assert!(a1 < 400 && a2 < 400, "stopped with work left");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!((last_acked(db1.path()), last_acked(db2.path())), (a1, a2));
+}
+
+#[tokio::test]
+async fn an_order_carries_the_time_it_was_made() {
+    let clob = clob().await;
+    let c2 = c2_with(gen("A", 1)).await;
+    let db = TempDb::new("stamp");
+    let _w = worker::spawn(fast_cfg("bot-ts", vec![c2.ws_url()], db.path(), &clob.url())).unwrap();
+    wait_until("1 command", LIMIT, || last_acked(db.path()) == 1).await;
+    let body: serde_json::Value = serde_json::from_str(&db.open().order_for(1).unwrap().unwrap().body).unwrap();
+    let stamped: u64 = body["order"]["timestamp"].as_str().unwrap().parse().unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    assert!(stamped + 10_000 > now && stamped <= now, "stamped {stamped}, now {now}");
+}
+
+#[tokio::test]
+async fn a_post_that_fails_twice_is_sent_a_third_time_with_the_same_bytes() {
+    let clob = clob().await;
+    clob.fail_next_posts(2);
+    let c2 = c2_with(gen("A", 1)).await;
+    let db = TempDb::new("retry");
+    let _w = worker::spawn(fast_cfg("bot-rt", vec![c2.ws_url()], db.path(), &clob.url())).unwrap();
+    wait_until("1 command", LIMIT, || last_acked(db.path()) == 1).await;
+    assert_eq!(db.open().result_for(1).unwrap().unwrap().0, "filled");
+    assert_eq!(clob.posts_received(), 3);
+    assert_eq!(clob.received().len(), 1);
+    let gaps = clob.post_gaps();
+    assert_eq!(gaps.len(), 2);
+    assert!(
+        gaps.iter().all(|g| *g >= Duration::from_millis(9)),
+        "the retries wait between tries: {gaps:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_order_the_exchange_refuses_is_a_final_answer_not_a_failure_of_the_exchange() {
+    for with_ok_status in [false, true] {
+        let clob = clob().await;
+        clob.refuse_next_posts(4, with_ok_status);
+        let c2 = c2_with(gen("A", 5)).await;
+        let db = TempDb::new("refuse");
+        let mut cfg = fast_cfg("bot-rf", vec![c2.ws_url()], db.path(), &clob.url());
+        cfg.breaker.failure_threshold = 3;
+        let _w = worker::spawn(cfg).unwrap();
+        wait_until("5 commands", LIMIT, || last_acked(db.path()) == 5).await;
+        let s = db.open();
+        for seq in 1..=4 {
+            let (outcome, detail) = s.result_for(seq).unwrap().unwrap();
+            assert_eq!(outcome, "rejected");
+            assert_eq!(detail, "rejected: refused by the stand in");
+            assert_eq!(s.order_for(seq).unwrap().unwrap().state, "failed");
+        }
+        // Four refusals in a row did not open the breaker (threshold 3), because the exchange answered each
+        // time, and none was sent twice.
+        assert_eq!(
+            s.result_for(5).unwrap().unwrap().0,
+            "filled",
+            "ok status {with_ok_status}"
+        );
+        assert_eq!(clob.posts_received(), 5);
+    }
+}
+
+#[tokio::test]
+async fn an_order_stored_as_failed_before_a_restart_is_not_sent() {
+    let clob = clob().await;
+    let c2 = c2_with(gen("A", 1)).await;
+    let db = TempDb::new("failed-resume");
+    let cfg = fast_cfg("bot-fr", vec![c2.ws_url()], db.path(), &clob.url());
+    let wallet = bookwatch::worker::wallet_hex_of(&cfg.wallet_secret).unwrap();
+    {
+        let mut s = db.open();
+        s.begin_order(1, &wallet, |n| {
+            Ok((format!("{{\"n\":{n}}}"), "BUY".into(), "1".into(), "0.5".into()))
+        })
+        .unwrap();
+        s.mark_failed(1).unwrap();
+    }
+    let _w = worker::spawn(cfg).unwrap();
+    wait_until("1 command", LIMIT, || last_acked(db.path()) == 1).await;
+    let (outcome, detail) = db.open().result_for(1).unwrap().unwrap();
+    assert_eq!(outcome, "rejected");
+    assert!(detail.contains("earlier attempt"), "{detail}");
+    assert_eq!(clob.posts_received(), 0);
 }

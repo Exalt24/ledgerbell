@@ -1,0 +1,13 @@
+stand-in CLOB (from Polymarket's public docs, not Polymarket) at http://127.0.0.1:49938
+C2 A on port 49939, C2 B on port 49940, each with the same 80 commands for every worker
+
+-- worker running, 20 commands stored; killing the worker process now
+worker killed, last stored command id 20; starting a new worker process on the same database
+new worker is past it: last stored command id 30
+
+-- killing C2 A while the worker is connected to it
+worker failed over to C2 B and finished: last stored command id 80
+C2 B GET /workers answered 200: [{"acks":49,"commands_in_log":80,"connected":true,"connections":1,"fills_seen":80,"id":"bot-1","inbound_seq_anomalies":0,"last_acked":80,"last_seen_ms":1794764472183,"orders_sent":80,"outcomes":{"filled":49},"replays_served":0,"wallet":"0xb2ea6209cedc5b004e0646b15393260e83bdc0e9"}]
+
+worker database: journal mode wal, 80 results, 80 orders, nonces 1..80
+CLOB stand-in saw 80 POSTs for 80 distinct orders; every nonce used once: true
