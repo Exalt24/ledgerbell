@@ -1,5 +1,3 @@
-scripts/breakages.py, 2026-11-15, in a temp copy of the crate. The first run of these 27 left 4 alive: the rounding of a sell limit (the test prices were all round numbers, so rounding up and down agreed), buffered deltas the snapshot already covers, resetting the missed count after a delivery, and a price that is a JSON number. Each led to a test (an odd price unit test, tests of the join function, a second delivery in the slow consumer test, a numeric price test). The run below is the rerun.
-
 caught  book.rs: a crossing delta is refused
 caught  book.rs: a refused crossing delta is rolled back
 caught  book.rs: a zero size removes the level
@@ -8,9 +6,38 @@ caught  book.rs: a gap after a snapshot is refused
 caught  book.rs: a gap on the live stream is refused
 caught  book.rs: a live delta that overlaps the book id is refused
 caught  book.rs: a crossed snapshot is refused
-caught  book.rs: the book id moves to the delta's final id
-caught  book.rs: the best bid is the highest bid
-caught  book.rs: the depth view lists bids from the top
+BROKEN  book.rs: the book id moves to the delta's final id (does not compile)
+VIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet_process-9a692e1d19d19e5d.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet_process") due to 1 previous error
+error: failed to remove file `C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\bookwatch.exe`
+
+Caused by:
+  Access is denied. (os error 5)
+
+BROKEN  book.rs: the best bid is the highest bid (does not compile)
+VIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet_process-9a692e1d19d19e5d.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet_process") due to 1 previous error
+error: failed to remove file `C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\bookwatch.exe`
+
+Caused by:
+  Access is denied. (os error 5)
+
+BROKEN  book.rs: the depth view lists bids from the top (does not compile)
+ "/DEBUG" "/PDBALTPATH:%_PDB%" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\intrinsic.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\liballoc.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet_properties-3bebf01641d63cae.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet_properties") due to 1 previous error
+
 caught  book.rs: a decimal with more than eight places is refused
 caught  follow.rs: a buy limit sits above the reference by the cap
 caught  follow.rs: a sell limit is rounded up, inside the cap
@@ -27,5 +54,85 @@ caught  client.rs: a full channel counts the dropped event
 caught  client.rs: the buffered deltas are applied through the book's own rules
 caught  client.rs: a protocol error ends the connection
 caught  proto.rs: a level price must be a string
+caught  seq.rs: a skipped id is a gap
+caught  seq.rs: id zero is invalid
+caught  guard.rs: a miss widens the cap
+caught  guard.rs: a clean fill tightens the cap
+caught  guard.rs: a thin book widens the cap
+caught  guard.rs: a deep book tightens the cap
+caught  guard.rs: the cap stays inside its bounds
+caught  guard.rs: a buy is refused when the price rose
+caught  guard.rs: the move is rounded up
+caught  guard.rs: a move past the threshold is refused
+caught  guard.rs: a fill counts only after the whole window
+caught  guard.rs: a change restarts the window
+caught  guard.rs: the failure threshold opens the breaker
+caught  guard.rs: the cooldown ends exactly at its length
+caught  guard.rs: a second call waits while the probe is out
+caught  guard.rs: a good probe closes the breaker
+caught  guard.rs: a failed probe restarts the cooldown
+caught  guard.rs: a success resets the failure count
+caught  eip712.rs: the digest starts with 0x19 0x01
+caught  eip712.rs: dependent types are sorted
+caught  eip712.rs: v is 27 or 28
+caught  eip712.rs: an address is left padded
+caught  eip712.rs: a uint must fit its width
+caught  eip712.rs: fixed bytes keep their length
+caught  eip712.rs: the address is the last 20 bytes of the key hash
+caught  store.rs: the database is put in WAL mode
+caught  store.rs: full sync is honoured
+caught  store.rs: a busy database is waited for
+caught  store.rs: only the next command can finish
+caught  store.rs: an order that exists is resumed, not rebuilt
+caught  store.rs: a nonce is one more than the last
+BROKEN  store.rs: finish moves last_acked forward (does not compile)
+.exe" "/OPT:REF,NOICF" "/DEBUG" "/PDBALTPATH:%_PDB%" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\intrinsic.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\liballoc.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet-ec83d59ba1630154.exe'
+          
 
-27 breakages: 27 caught, 0 survived, 0 stale anchors, 0 do not compile
+error: could not compile `bookwatch` (test "fleet") due to 1 previous error
+
+BROKEN  store.rs: an order and its nonce are taken under the write lock (does not compile)
+.exe" "/OPT:REF,NOICF" "/DEBUG" "/PDBALTPATH:%_PDB%" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\intrinsic.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\liballoc.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet-ec83d59ba1630154.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet") due to 1 previous error
+
+BROKEN  clob.rs: a buy's collateral rounds down (does not compile)
+.exe" "/OPT:REF,NOICF" "/DEBUG" "/PDBALTPATH:%_PDB%" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\intrinsic.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\liballoc.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet-ec83d59ba1630154.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet") due to 1 previous error
+
+BROKEN  clob.rs: a sell's collateral rounds up (does not compile)
+.exe" "/OPT:REF,NOICF" "/DEBUG" "/PDBALTPATH:%_PDB%" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\intrinsic.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\liballoc.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libcore.natvis" "/NATVIS:<sysroot>\\lib\\rustlib\\etc\\libstd.natvis"
+  = note: some arguments are omitted. use `--verbose` to show all linker arguments
+  = note: LINK : fatal error LNK1104: cannot open file 'C:\Users\Dax\AppData\Local\Temp\bookwatch-breakages-target\debug\deps\fleet-ec83d59ba1630154.exe'
+          
+
+error: could not compile `bookwatch` (test "fleet") due to 1 previous error
+
+caught  clob.rs: shares are in 6 decimals
+caught  clob.rs: the CLOB checks who signed
+caught  clob.rs: an EOA order must be its own maker
+caught  clob.rs: a salt is used once per maker
+caught  c2.rs: a hello must be numbered one
+caught  c2.rs: the window holds commands back
+caught  c2.rs: an ack moves the worker's last_acked
+caught  c2.rs: a replay resends from the id after the last stored one
+caught  worker.rs: a repeated id is dropped, a hole is replayed
+caught  worker.rs: one replay is asked for one hole
+caught  worker.rs: an open breaker skips the command
+caught  worker.rs: the momentum filter has the configured threshold
+caught  worker.rs: recent misses reach the ladder
+caught  worker.rs: recent fills reach the ladder
+caught  worker.rs: a stable but smaller fill is partial
+caught  worker.rs: failover switches at the threshold
+caught  worker.rs: the reconnect wait doubles
+
+79 breakages: 72 caught, 0 survived, 0 stale anchors, 7 do not compile

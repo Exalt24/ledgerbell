@@ -1,0 +1,21 @@
+caught  book.rs: the book id moves to the delta's final id
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  book.rs: the best bid is the highest bid
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  book.rs: the depth view lists bids from the top
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  store.rs: finish moves last_acked forward
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  store.rs: an order and its nonce are taken under the write lock
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  clob.rs: a buy's collateral rounds down
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
+caught  clob.rs: a sell's collateral rounds up
+
+1 breakages: 1 caught, 0 survived, 0 stale anchors, 0 do not compile
