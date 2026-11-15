@@ -255,6 +255,13 @@ async fn a_slow_consumer_loses_notifications_never_state_and_is_told_how_many() 
         c.stats().dropped_events.load(Ordering::Relaxed) - reported
     );
     assert_eq!(next.last_update_id, ex.last_update_id());
+    // Once delivered, the count starts again from zero.
+    ex.publish_random();
+    let after = tokio::time::timeout(Duration::from_secs(5), c.events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.missed_before, 0);
 }
 
 #[tokio::test]

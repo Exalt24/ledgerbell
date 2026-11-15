@@ -1,0 +1,31 @@
+scripts/breakages.py, 2026-11-15, in a temp copy of the crate. The first run of these 27 left 4 alive: the rounding of a sell limit (the test prices were all round numbers, so rounding up and down agreed), buffered deltas the snapshot already covers, resetting the missed count after a delivery, and a price that is a JSON number. Each led to a test (an odd price unit test, tests of the join function, a second delivery in the slow consumer test, a numeric price test). The run below is the rerun.
+
+caught  book.rs: a crossing delta is refused
+caught  book.rs: a refused crossing delta is rolled back
+caught  book.rs: a zero size removes the level
+caught  book.rs: a delta at or below the book id is stale
+caught  book.rs: a gap after a snapshot is refused
+caught  book.rs: a gap on the live stream is refused
+caught  book.rs: a live delta that overlaps the book id is refused
+caught  book.rs: a crossed snapshot is refused
+caught  book.rs: the book id moves to the delta's final id
+caught  book.rs: the best bid is the highest bid
+caught  book.rs: the depth view lists bids from the top
+caught  book.rs: a decimal with more than eight places is refused
+caught  follow.rs: a buy limit sits above the reference by the cap
+caught  follow.rs: a sell limit is rounded up, inside the cap
+caught  follow.rs: a buy never takes a level above the limit
+caught  follow.rs: an order never takes more than a level holds
+caught  follow.rs: a size below the minimum is refused
+caught  client.rs: a gap makes the client throw the book away and resync
+caught  client.rs: buffered deltas the snapshot covers are dropped, not fatal
+caught  client.rs: the reconnect wait grows
+caught  client.rs: a silent connection is declared dead
+caught  client.rs: the book is cleared when the connection ends
+caught  client.rs: a delivered event resets the missed count
+caught  client.rs: a full channel counts the dropped event
+caught  client.rs: the buffered deltas are applied through the book's own rules
+caught  client.rs: a protocol error ends the connection
+caught  proto.rs: a level price must be a string
+
+27 breakages: 27 caught, 0 survived, 0 stale anchors, 0 do not compile

@@ -319,6 +319,39 @@ async fn take_snapshot(
     }
 }
 
+/// A snapshot with the buffered deltas applied on top of it.
+struct Joined {
+    book: OrderBook,
+    /// The deltas that were applied, in order.
+    applied: Vec<Delta>,
+    /// How many buffered deltas the snapshot already covered.
+    stale: u64,
+}
+
+enum JoinError {
+    /// The snapshot cannot be a book (it is crossed).
+    Snapshot(String),
+    /// A buffered delta does not follow the snapshot: the stream skipped ahead of it, or it is crossed.
+    Buffered(ApplyError),
+}
+
+/// Binance steps 3 and 4: build the book from the snapshot, drop buffered deltas it already covers
+/// and apply the rest. A buffered delta that does not follow the snapshot is an error.
+fn join(snap: &proto::SnapshotReply, buffered: &[Delta]) -> Result<Joined, JoinError> {
+    let mut book = OrderBook::from_snapshot(snap.last_update_id, &snap.bids, &snap.asks)
+        .map_err(|e| JoinError::Snapshot(e.to_string()))?;
+    let mut applied = Vec::new();
+    let mut stale = 0;
+    for d in buffered {
+        match book.apply(d) {
+            Ok(()) => applied.push(d.clone()),
+            Err(ApplyError::Stale { .. }) => stale += 1,
+            Err(e) => return Err(JoinError::Buffered(e)),
+        }
+    }
+    Ok(Joined { book, applied, stale })
+}
+
 async fn session(cfg: &ClientConfig, shared: &Shared, emitter: &mut Emitter, mut ws: Ws) -> SessionEnd {
     let mut was_synced = false;
     let mut req_no: u64 = 0;
@@ -334,31 +367,25 @@ async fn session(cfg: &ClientConfig, shared: &Shared, emitter: &mut Emitter, mut
             Ok(x) => x,
             Err(reason) => return SessionEnd { reason, was_synced },
         };
-        let mut book = match OrderBook::from_snapshot(snap.last_update_id, &snap.bids, &snap.asks) {
-            Ok(b) => b,
-            Err(e) => {
-                return SessionEnd {
-                    reason: e.to_string(),
-                    was_synced,
-                }
+        let joined = match join(&snap, &buffered) {
+            Ok(j) => j,
+            Err(JoinError::Snapshot(reason)) => return SessionEnd { reason, was_synced },
+            Err(JoinError::Buffered(e)) => {
+                failed_syncs += 1;
+                shared.stats.resyncs.fetch_add(1, Ordering::Relaxed);
+                emitter.send(shared, EventKind::Resyncing(e.to_string()), None, 0);
+                continue 'resync;
             }
         };
-        for d in &buffered {
-            match book.apply(d) {
-                Ok(()) => {
-                    record(cfg, shared, d);
-                    shared.stats.applied.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(ApplyError::Stale { .. }) => {
-                    shared.stats.stale.fetch_add(1, Ordering::Relaxed);
-                }
-                Err(_) => {
-                    failed_syncs += 1;
-                    shared.stats.resyncs.fetch_add(1, Ordering::Relaxed);
-                    continue 'resync;
-                }
-            }
+        for d in &joined.applied {
+            record(cfg, shared, d);
         }
+        shared
+            .stats
+            .applied
+            .fetch_add(joined.applied.len() as u64, Ordering::Relaxed);
+        shared.stats.stale.fetch_add(joined.stale, Ordering::Relaxed);
+        let book = joined.book;
         let id = book.last_update_id();
         emitter.send(shared, EventKind::Synced, Some(&book), id);
         *shared.book.write().unwrap() = Some(book);
@@ -444,5 +471,66 @@ mod tests {
     fn backoff_survives_a_huge_attempt_count() {
         let d = backoff_delay(u32::MAX, Duration::from_millis(250), Duration::from_secs(30));
         assert_eq!(d, Duration::from_secs(30));
+    }
+
+    fn lv(p: &str, q: &str) -> Level {
+        Level {
+            price: crate::book::Fixed::parse(p).unwrap(),
+            qty: crate::book::Fixed::parse(q).unwrap(),
+        }
+    }
+
+    fn snap(last: u64, bids: Vec<Level>, asks: Vec<Level>) -> proto::SnapshotReply {
+        proto::SnapshotReply {
+            id: "s".into(),
+            last_update_id: last,
+            bids,
+            asks,
+        }
+    }
+
+    fn d(first: u64, last: u64, bids: Vec<Level>) -> Delta {
+        Delta {
+            first_id: first,
+            final_id: last,
+            bids,
+            asks: vec![],
+        }
+    }
+
+    #[test]
+    fn joining_drops_the_buffered_deltas_the_snapshot_covers_and_applies_the_rest() {
+        let s = snap(100, vec![lv("99", "1")], vec![lv("101", "1")]);
+        let buffered = vec![
+            d(98, 99, vec![lv("99", "7")]),
+            d(100, 100, vec![lv("99", "8")]),
+            d(99, 103, vec![lv("98", "2")]),
+            d(104, 104, vec![lv("97", "3")]),
+        ];
+        let Ok(j) = join(&s, &buffered) else {
+            panic!("join failed")
+        };
+        assert_eq!(j.stale, 2);
+        assert_eq!(j.applied.len(), 2);
+        assert_eq!(j.book.last_update_id(), 104);
+        // The covered deltas must not have touched the book: the level at 99 keeps the snapshot's size.
+        assert_eq!(j.book.best_bid().unwrap().qty, crate::book::Fixed::parse("1").unwrap());
+        assert_eq!(j.book.bid_levels(), 3);
+    }
+
+    #[test]
+    fn joining_fails_when_the_stream_skipped_ahead_of_the_snapshot() {
+        let s = snap(100, vec![lv("99", "1")], vec![lv("101", "1")]);
+        let r = join(&s, &[d(150, 150, vec![])]);
+        assert!(matches!(r, Err(JoinError::Buffered(ApplyError::Gap { .. }))));
+    }
+
+    #[test]
+    fn joining_fails_on_a_crossed_snapshot_and_on_a_crossing_buffered_delta() {
+        let crossed = snap(1, vec![lv("102", "1")], vec![lv("101", "1")]);
+        assert!(matches!(join(&crossed, &[]), Err(JoinError::Snapshot(_))));
+        let s = snap(100, vec![lv("99", "1")], vec![lv("101", "1")]);
+        let r = join(&s, &[d(101, 101, vec![lv("105", "1")])]);
+        assert!(matches!(r, Err(JoinError::Buffered(ApplyError::Crossed { .. }))));
     }
 }

@@ -44,13 +44,13 @@ BREAKAGES = [
     ("follow.rs", "a size below the minimum is refused", "if wanted < cfg.min_qty || wanted.is_zero() {", "if wanted.is_zero() {"),
     # -- the client
     ("client.rs", "a gap makes the client throw the book away and resync", "emitter.send(shared, EventKind::Resyncing(e.to_string()), None, 0);\n                    continue 'resync;", "let _ = e;"),
-    ("client.rs", "buffered deltas the snapshot covers are dropped, not fatal", "Err(ApplyError::Stale { .. }) => {\n                    shared.stats.stale.fetch_add(1, Ordering::Relaxed);\n                }\n                Err(_) => {", "Err(ApplyError::Stale { .. }) => {\n                    failed_syncs += 1;\n                    continue 'resync;\n                }\n                Err(_) => {"),
+    ("client.rs", "buffered deltas the snapshot covers are dropped, not fatal", "Err(ApplyError::Stale { .. }) => stale += 1,", "Err(ApplyError::Stale { book_id, delta_final }) => return Err(JoinError::Buffered(ApplyError::Stale { book_id, delta_final })),"),
     ("client.rs", "the reconnect wait grows", "attempt = attempt.saturating_add(1);", "attempt = 0;"),
     ("client.rs", "a silent connection is declared dead", 'Err(_) => Step::Ended(format!("no frame for {} ms", idle.as_millis())),', "Err(_) => Step::Frame(Message::Pong(Vec::new().into())),"),
     ("client.rs", "the book is cleared when the connection ends", "                *shared.book.write().unwrap() = None;\n                shared.stats.synced.store(false, Ordering::Relaxed);\n                if end.was_synced {", "                if end.was_synced {"),
     ("client.rs", "a delivered event resets the missed count", "Ok(()) => self.pending_missed = 0,", "Ok(()) => {}"),
     ("client.rs", "a full channel counts the dropped event", "                self.pending_missed += 1;\n                shared.stats.dropped_events.fetch_add(1, Ordering::Relaxed);", "                shared.stats.dropped_events.fetch_add(1, Ordering::Relaxed);"),
-    ("client.rs", "the first delta after a snapshot is checked", "match book.apply(d) {\n                Ok(()) => {\n                    record(cfg, shared, d);", "match Ok::<(), ApplyError>(()) {\n                Ok(()) => {\n                    record(cfg, shared, d);"),
+    ("client.rs", "the buffered deltas are applied through the book's own rules", "        match book.apply(d) {\n            Ok(()) => applied.push(d.clone()),", "        match Ok::<(), ApplyError>(()) {\n            Ok(()) => applied.push(d.clone()),"),
     ("client.rs", "a protocol error ends the connection", "                Ok(_) => continue,\n                Err(e) => {\n                    return SessionEnd {\n                        reason: e.to_string(),\n                        was_synced,\n                    }\n                }", "                Ok(_) => continue,\n                Err(_) => continue,"),
     # -- the wire
     ("proto.rs", "a level price must be a string", '.ok_or_else(|| ProtoError(format!("{what}: price is not a string")))?;', '.unwrap_or("0");'),

@@ -1,0 +1,23 @@
+Machine: AMD Ryzen 7 9800X3D (8 cores, 16 threads), 62 GB RAM, Windows 11 Pro, rustc 1.99.1, release profile. Captured 2026-11-15.
+
+run 1
+paced: 5000 deltas, each one tick above the last best bid
+  send to best bid changed: min 12.5µs  p50 24.3µs  p90 52.8µs  p99 72.3µs  max 1.6897ms  mean 30.988µs
+burst: 5000 deltas sent in 7.222ms, last one in the client's book after 42.5268ms
+  117573 deltas per second end to end
+  events dropped (channel of 16384): 0
+
+run 2
+paced: 5000 deltas, each one tick above the last best bid
+  send to best bid changed: min 12.6µs  p50 26.4µs  p90 53.3µs  p99 86.5µs  max 175.6µs  mean 31.594µs
+burst: 5000 deltas sent in 12.1694ms, last one in the client's book after 44.3806ms
+  112662 deltas per second end to end
+  events dropped (channel of 16384): 0
+
+run 3
+paced: 5000 deltas, each one tick above the last best bid
+  send to best bid changed: min 10.5µs  p50 32.9µs  p90 56.8µs  p99 76.2µs  max 1.0873ms  mean 36.371µs
+burst: 5000 deltas sent in 9.1143ms, last one in the client's book after 46.3902ms
+  107781 deltas per second end to end
+  events dropped (channel of 16384): 0
+

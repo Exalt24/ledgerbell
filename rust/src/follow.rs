@@ -314,6 +314,35 @@ mod tests {
     }
 
     #[test]
+    fn a_sell_limit_is_rounded_up_and_a_buy_limit_down_when_the_cap_does_not_divide_evenly() {
+        // 99.00000001 is 9_900_000_001 units. With a 1 bps cap the sell limit is that times 9999 / 10000,
+        // which is 9_899_010_000.9999: rounded up to 9_899_010_001 so it never goes past the cap.
+        let b = OrderBook::from_snapshot(
+            1,
+            &[Level {
+                price: Fixed(9_900_000_001),
+                qty: Fixed(500_000_000),
+            }],
+            &[lv("101", "1")],
+        )
+        .unwrap();
+        let o = delta_position(units("1"), 0, &b, &cfg(1)).unwrap();
+        assert_eq!(o.limit_price, Fixed(9_899_010_001));
+        // A buy against an ask of 101.00000001 and a 1 bps cap: times 10001 / 10000 is 10_101_010_001.0001, rounded down.
+        let b = OrderBook::from_snapshot(
+            1,
+            &[lv("99", "1")],
+            &[Level {
+                price: Fixed(10_100_000_001),
+                qty: Fixed(500_000_000),
+            }],
+        )
+        .unwrap();
+        let o = delta_position(0, units("1"), &b, &cfg(1)).unwrap();
+        assert_eq!(o.limit_price, Fixed(10_101_010_001));
+    }
+
+    #[test]
     fn a_zero_cap_fills_only_at_the_reference_price() {
         let o = delta_position(0, units("5"), &book(), &cfg(0)).unwrap();
         assert_eq!(o.limit_price, f("100.00"));

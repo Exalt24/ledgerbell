@@ -1,0 +1,16 @@
+stand-in exchange (written from Binance's public docs, not Binance) on 127.0.0.1:62888
+synced                       bid 99.99000000 x 0.07374487   ask 100.01000000 x 0.03955804  update id 1002
+streaming                    bid 99.98000000 x 0.06695801   ask 99.99000000 x 0.03010774   update id 1403
+
+-- the stand-in drops one delta on its way to the client
+gap seen, snapshot requested again on the same connection, book rebuilt
+after the gap                bid 99.98000000 x 0.06695801   ask 99.99000000 x 0.03010774   update id 1430
+
+-- the stand-in closes the connection without a close frame, twice
+reconnected (1)              bid 99.98000000 x 0.02079855   ask 99.99000000 x 0.06635415   update id 1541
+reconnected (2)              bid 99.98000000 x 0.05302968   ask 99.99000000 x 0.01377921   update id 1877
+
+exchange update id 2137, client update id 2137
+client book equals the exchange's book: true
+deltas applied 458, none twice or out of order: true
+stats: applied 458 | stale dropped 6 | resyncs 1 | snapshots 4 | connections 3 | disconnects 2 | events dropped 0

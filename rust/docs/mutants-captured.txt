@@ -1,0 +1,57 @@
+cargo-mutants 27.1.0 over src/book.rs, src/follow.rs, src/proto.rs and src/client.rs (the stand-in in src/standin.rs is test scaffolding and is not mutated), 2026-11-15.
+Command: cargo mutants --file src/book.rs --file src/follow.rs --file src/proto.rs --file src/client.rs -j 4 --minimum-test-timeout 40
+Machine: AMD Ryzen 7 9800X3D, Windows 11 Pro, rustc 1.99.1.
+
+Every run below is a summary line copied as printed. The runs before the last one each left mutants alive, and each survivor led to a test or a change, so they are kept here.
+
+Run 1, book.rs, follow.rs and proto.rs only
+  124 mutants tested in 3m: 11 missed, 99 caught, 14 unviable
+  missed: two Fixed::parse comparisons (one was an equivalent comparison, rewritten without it), four Display impls, OrderBook::ask_levels, two comparisons in delta_position (one equivalent, rewritten as a match on the sign).
+  led to: tests for '+1.5' and '1.+5' (Rust's integer parser accepts a leading plus), an error text test per error type, a test for an ask level count, a test that a size equal to the minimum is sent.
+
+Run 2, client.rs added
+  174 mutants tested in 5m: 22 missed, 125 caught, 27 unviable
+  missed: applied_log (5 variants), shutdown, drop, Emitter::send, the snapshot request counter, the reply id guards (4), the stale snapshot pre check (3) and its counter (2), the sync failure counters (2), the Close arm, record.
+  led to: tests that read the applied log and need it non empty, shutdown and drop tests, an events test (Synced, then a Resyncing event naming the gap, then Synced), stand-in knobs for stray replies, failed snapshots, stale snapshots and a polite close, and the removal of a pre check that was both redundant and wrong: it asked for a new snapshot when the snapshot's id was one below the first buffered delta's first id, which is the normal case.
+
+Run 3
+  173 mutants tested in 5m: 3 missed, 143 caught, 27 unviable
+  missed: the reply id guard, and the sync failure counter in two places (buffered deltas and live deltas).
+  led to: a stronger stray reply test (no resync and one request before the forced gap), a stand-in knob that holds a snapshot reply until a delta has gone out, and two tests that a snapshot that never lines up is given up on after exactly five requests, one seen in the buffered deltas and one on the live stream.
+
+Run 4
+  173 mutants tested in 5m: 146 caught, 27 unviable
+
+Run 5, after the last refactor (the join of a snapshot and its buffered deltas became a function with its own unit tests) and more tests
+  176 mutants tested in 5m: 148 caught, 28 unviable
+  caught: 148, missed: 0, timed out: 0, unviable (does not compile): 28
+
+Unviable mutants of the last run (the replacement did not compile, so there is nothing to catch):
+  src/book.rs:190:9: replace OrderBook::from_snapshot -> Result<OrderBook, SnapshotError> with Ok(Default::default())
+  src/book.rs:213:9: replace OrderBook::best_bid -> Option<Level> with Some(Default::default())
+  src/book.rs:217:9: replace OrderBook::best_ask -> Option<Level> with Some(Default::default())
+  src/book.rs:230:9: replace OrderBook::depth -> (Vec<Level>, Vec<Level>) with (vec![], vec![Default::default()])
+  src/book.rs:230:9: replace OrderBook::depth -> (Vec<Level>, Vec<Level>) with (vec![Default::default()], vec![])
+  src/book.rs:230:9: replace OrderBook::depth -> (Vec<Level>, Vec<Level>) with (vec![Default::default()], vec![Default::default()])
+  src/book.rs:248:9: replace OrderBook::all_levels -> (Vec<Level>, Vec<Level>) with (vec![], vec![Default::default()])
+  src/book.rs:248:9: replace OrderBook::all_levels -> (Vec<Level>, Vec<Level>) with (vec![Default::default()], vec![])
+  src/book.rs:248:9: replace OrderBook::all_levels -> (Vec<Level>, Vec<Level>) with (vec![Default::default()], vec![Default::default()])
+  src/client.rs:127:9: replace Handle::best_bid -> Option<Level> with Some(Default::default())
+  src/client.rs:131:9: replace Handle::best_ask -> Option<Level> with Some(Default::default())
+  src/client.rs:136:9: replace Handle::depth -> Option<(Vec<Level>, Vec<Level>)> with Some((vec![], vec![Default::default()]))
+  src/client.rs:136:9: replace Handle::depth -> Option<(Vec<Level>, Vec<Level>)> with Some((vec![Default::default()], vec![]))
+  src/client.rs:136:9: replace Handle::depth -> Option<(Vec<Level>, Vec<Level>)> with Some((vec![Default::default()], vec![Default::default()]))
+  src/client.rs:141:9: replace Handle::book -> Option<OrderBook> with Some(Default::default())
+  src/client.rs:175:5: replace spawn -> Handle with Default::default()
+  src/client.rs:270:5: replace next_frame -> Step with Default::default()
+  src/client.rs:286:5: replace take_snapshot -> Result<(proto::SnapshotReply, Vec<Delta>), String> with Ok((Default::default(), vec![]))
+  src/client.rs:286:5: replace take_snapshot -> Result<(proto::SnapshotReply, Vec<Delta>), String> with Ok((Default::default(), vec![Default::default()]))
+  src/client.rs:297:35: replace + with * in take_snapshot
+  src/client.rs:341:5: replace join -> Result<Joined, JoinError> with Ok(Default::default())
+  src/client.rs:356:5: replace session -> SessionEnd with Default::default()
+  src/client.rs:401:17: delete match arm Message::Text(t) in session
+  src/follow.rs:83:5: replace delta_position -> Result<FollowerOrder, FollowError> with Ok(Default::default())
+  src/follow.rs:83:59: replace >= with < in delta_position
+  src/proto.rs:47:5: replace err -> Result<T, ProtoError> with Ok(Default::default())
+  src/proto.rs:51:5: replace levels -> Result<Vec<Level>, ProtoError> with Ok(vec![Default::default()])
+  src/proto.rs:75:5: replace parse -> Result<Inbound, ProtoError> with Ok(Default::default())

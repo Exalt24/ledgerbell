@@ -1,0 +1,15 @@
+Machine: AMD Ryzen 7 9800X3D (8 cores, 16 threads), 62 GB RAM, Windows 11 Pro, rustc 1.99.1, cargo bench (criterion 0.5.1). Captured 2026-11-15.
+
+book/apply_10000_deltas time:   [1.9759 ms 2.0190 ms 2.0637 ms]
+                        thrpt:  [4.8456 Melem/s 4.9530 Melem/s 5.0611 Melem/s]
+                 change:
+                        time:   [-5.1703% -2.5766% -0.1460%] (p = 0.05 > 0.05)
+                        thrpt:  [+0.1462% +2.6447% +5.4522%]
+                        No change in performance detected.
+book/parse_json_and_apply_10000_deltas
+                        time:   [16.250 ms 16.701 ms 17.153 ms]
+                        thrpt:  [582.98 Kelem/s 598.78 Kelem/s 615.39 Kelem/s]
+                 change:
+                        time:   [-11.841% -8.0978% -4.4682%] (p = 0.00 < 0.05)
+                        thrpt:  [+4.6772% +8.8113% +13.432%]
+                        Performance has improved.

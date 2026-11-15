@@ -222,6 +222,13 @@ mod tests {
     }
 
     #[test]
+    fn a_price_or_size_that_is_a_json_number_is_refused() {
+        assert!(parse(r#"{"e":"depthUpdate","U":1,"u":2,"b":[[1,"1"]],"a":[]}"#).is_err());
+        assert!(parse(r#"{"e":"depthUpdate","U":1,"u":2,"b":[["1",1]],"a":[]}"#).is_err());
+        assert!(parse(r#"{"e":"depthUpdate","U":1,"u":2,"b":[["1"]],"a":[]}"#).is_err());
+    }
+
+    #[test]
     fn a_protocol_error_prints_its_message() {
         assert_eq!(ProtoError("bad thing".into()).to_string(), "protocol error: bad thing");
     }
