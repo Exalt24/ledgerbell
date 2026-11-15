@@ -39,4 +39,5 @@ select = ["E", "F", "W", "B", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["E501"]
+"rust/scripts/*" = ["E501"]
 "src/ledgerbell/dashboard.py" = ["E501"]
