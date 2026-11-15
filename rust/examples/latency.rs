@@ -25,7 +25,11 @@ fn pct(sorted: &[Duration], p: f64) -> Duration {
 
 #[tokio::main]
 async fn main() {
-    let cfg = StandInConfig { spread_ticks: 2 * (N + 10), initial_levels: 200, ..StandInConfig::default() };
+    let cfg = StandInConfig {
+        spread_ticks: 2 * (N + 10),
+        initial_levels: 200,
+        ..StandInConfig::default()
+    };
     let tick = cfg.tick.0;
     let ex = StandIn::start(cfg).await.unwrap();
     let mut ccfg = ClientConfig::new(ex.url(), ex.symbol());
@@ -42,7 +46,16 @@ async fn main() {
     let mut lat = Vec::with_capacity(N as usize);
     for k in 1..=N {
         let price = Fixed(first_bid + k * tick);
-        let sent = ex.publish_levels(&[Level { price, qty: Fixed(SCALE) }], &[]).unwrap().sent_at;
+        let sent = ex
+            .publish_levels(
+                &[Level {
+                    price,
+                    qty: Fixed(SCALE),
+                }],
+                &[],
+            )
+            .unwrap()
+            .sent_at;
         loop {
             let ev = c.events.recv().await.unwrap();
             if ev.best_bid.map(|b| b.price) == Some(price) {
@@ -71,7 +84,14 @@ async fn main() {
     for k in 1..=N {
         last = Fixed(base + k * tick);
         // Asks sit above every bid, so this cannot cross: the spread was made wide enough for both runs.
-        ex.publish_levels(&[Level { price: last, qty: Fixed(SCALE) }], &[]).unwrap();
+        ex.publish_levels(
+            &[Level {
+                price: last,
+                qty: Fixed(SCALE),
+            }],
+            &[],
+        )
+        .unwrap();
     }
     let sent_all = start.elapsed();
     while c.best_bid().map(|b| b.price) != Some(last) {

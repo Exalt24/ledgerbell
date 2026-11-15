@@ -15,13 +15,19 @@ const DELTAS: usize = 10_000;
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.0 = self
+            .0
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
         self.0 >> 33
     }
 }
 
 fn level(price_step: u64, qty: u64) -> Level {
-    Level { price: Fixed(price_step * TICK), qty: Fixed(qty * TICK) }
+    Level {
+        price: Fixed(price_step * TICK),
+        qty: Fixed(qty * TICK),
+    }
 }
 
 fn book() -> OrderBook {
@@ -35,10 +41,15 @@ fn deltas() -> Vec<Delta> {
     let mut rng = Lcg(42);
     (0..DELTAS as u64)
         .map(|i| {
-            let mut d = Delta { first_id: i + 1, final_id: i + 1, bids: vec![], asks: vec![] };
+            let mut d = Delta {
+                first_id: i + 1,
+                final_id: i + 1,
+                bids: vec![],
+                asks: vec![],
+            };
             for _ in 0..4 {
                 let qty = rng.next() % 6;
-                if rng.next() % 2 == 0 {
+                if rng.next().is_multiple_of(2) {
                     d.bids.push(level(1 + rng.next() % LEVELS, qty));
                 } else {
                     d.asks.push(level(LEVELS + 1 + rng.next() % LEVELS, qty));
@@ -72,7 +83,9 @@ fn apply_benches(c: &mut Criterion) {
             book,
             |mut bk| {
                 for f in &frames {
-                    let proto::Inbound::Depth(d) = proto::parse(black_box(f)).unwrap() else { unreachable!() };
+                    let proto::Inbound::Depth(d) = proto::parse(black_box(f)).unwrap() else {
+                        unreachable!()
+                    };
                     bk.apply(&d).unwrap();
                 }
                 bk

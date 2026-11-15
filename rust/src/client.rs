@@ -113,6 +113,7 @@ struct Shared {
     book: RwLock<Option<OrderBook>>,
     stats: Stats,
     applied_log: Mutex<Vec<(u64, u64)>>,
+    last_end: Mutex<String>,
 }
 
 pub struct Handle {
@@ -148,6 +149,11 @@ impl Handle {
         &self.shared.stats
     }
 
+    /// Why the last connection ended, or an empty string if none has.
+    pub fn last_disconnect_reason(&self) -> String {
+        self.shared.last_end.lock().unwrap().clone()
+    }
+
     pub fn applied_log(&self) -> Vec<(u64, u64)> {
         self.shared.applied_log.lock().unwrap().clone()
     }
@@ -171,9 +177,14 @@ pub fn spawn(cfg: ClientConfig) -> Handle {
         book: RwLock::new(None),
         stats: Stats::default(),
         applied_log: Mutex::new(Vec::new()),
+        last_end: Mutex::new(String::new()),
     });
     let task = tokio::spawn(run(cfg, Arc::clone(&shared), tx));
-    Handle { events: rx, shared, task }
+    Handle {
+        events: rx,
+        shared,
+        task,
+    }
 }
 
 struct Emitter {
@@ -190,7 +201,13 @@ impl Emitter {
 
     fn send_tops(&mut self, shared: &Shared, kind: EventKind, id: u64, bid: Option<Level>, ask: Option<Level>) {
         shared.stats.event_attempts.fetch_add(1, Ordering::Relaxed);
-        let ev = BookEvent { kind, last_update_id: id, best_bid: bid, best_ask: ask, missed_before: self.pending_missed };
+        let ev = BookEvent {
+            kind,
+            last_update_id: id,
+            best_bid: bid,
+            best_ask: ask,
+            missed_before: self.pending_missed,
+        };
         match self.tx.try_send(ev) {
             Ok(()) => self.pending_missed = 0,
             Err(mpsc::error::TrySendError::Full(_)) => {
@@ -219,13 +236,19 @@ async fn run(cfg: ClientConfig, shared: Arc<Shared>, tx: mpsc::Sender<BookEvent>
             Ok(Ok((ws, _))) => {
                 shared.stats.connections.fetch_add(1, Ordering::Relaxed);
                 let end = session(&cfg, &shared, &mut emitter, ws).await;
+                *shared.last_end.lock().unwrap() = end.reason.clone();
                 *shared.book.write().unwrap() = None;
                 shared.stats.synced.store(false, Ordering::Relaxed);
                 if end.was_synced {
                     shared.stats.disconnects.fetch_add(1, Ordering::Relaxed);
                     attempt = 0;
                 }
-                emitter.send(&shared, EventKind::Resyncing(format!("connection ended: {}", end.reason)), None, 0);
+                emitter.send(
+                    &shared,
+                    EventKind::Resyncing(format!("connection ended: {}", end.reason)),
+                    None,
+                    0,
+                );
             }
             _ => {
                 shared.stats.connect_failures.fetch_add(1, Ordering::Relaxed);
@@ -264,9 +287,13 @@ async fn take_snapshot(
     *req_no += 1;
     let id = format!("snap-{}", *req_no);
     shared.stats.snapshots.fetch_add(1, Ordering::Relaxed);
-    ws.send(Message::text(proto::depth_request(&id, &cfg.symbol, cfg.snapshot_limit)))
-        .await
-        .map_err(|e| format!("send error: {e}"))?;
+    ws.send(Message::text(proto::depth_request(
+        &id,
+        &cfg.symbol,
+        cfg.snapshot_limit,
+    )))
+    .await
+    .map_err(|e| format!("send error: {e}"))?;
     let deadline = Instant::now() + cfg.snapshot_timeout;
     loop {
         let left = deadline.saturating_duration_since(Instant::now());
@@ -278,9 +305,11 @@ async fn take_snapshot(
             Step::Frame(Message::Text(t)) => match proto::parse(t.as_str()) {
                 Ok(Inbound::Depth(d)) => buffered.push(d),
                 Ok(Inbound::Snapshot(s)) if s.id == id => return Ok((s, buffered)),
-                Ok(Inbound::Failure { id: fid, status, message }) if fid == id => {
-                    return Err(format!("snapshot request failed: {status} {message}"))
-                }
+                Ok(Inbound::Failure {
+                    id: fid,
+                    status,
+                    message,
+                }) if fid == id => return Err(format!("snapshot request failed: {status} {message}")),
                 Ok(_) => {}
                 Err(e) => return Err(e.to_string()),
             },
@@ -296,22 +325,23 @@ async fn session(cfg: &ClientConfig, shared: &Shared, emitter: &mut Emitter, mut
     let mut failed_syncs: u32 = 0;
     'resync: loop {
         if failed_syncs >= 5 {
-            return SessionEnd { reason: "five snapshots in a row did not line up with the stream".into(), was_synced };
+            return SessionEnd {
+                reason: "five snapshots in a row did not line up with the stream".into(),
+                was_synced,
+            };
         }
         let (snap, buffered) = match take_snapshot(cfg, shared, &mut ws, &mut req_no).await {
             Ok(x) => x,
             Err(reason) => return SessionEnd { reason, was_synced },
         };
-        // Binance step 4: a snapshot older than the first buffered event cannot be joined to the stream.
-        if let Some(first) = buffered.first() {
-            if snap.last_update_id < first.first_id {
-                failed_syncs += 1;
-                continue 'resync;
-            }
-        }
         let mut book = match OrderBook::from_snapshot(snap.last_update_id, &snap.bids, &snap.asks) {
             Ok(b) => b,
-            Err(e) => return SessionEnd { reason: e.to_string(), was_synced },
+            Err(e) => {
+                return SessionEnd {
+                    reason: e.to_string(),
+                    was_synced,
+                }
+            }
         };
         for d in &buffered {
             match book.apply(d) {
@@ -342,13 +372,23 @@ async fn session(cfg: &ClientConfig, shared: &Shared, emitter: &mut Emitter, mut
             };
             let text = match msg {
                 Message::Text(t) => t,
-                Message::Close(_) => return SessionEnd { reason: "closed by server".into(), was_synced },
+                Message::Close(_) => {
+                    return SessionEnd {
+                        reason: "closed by server".into(),
+                        was_synced,
+                    }
+                }
                 _ => continue, // pings are answered by the library on the next read, pongs ignored
             };
             let delta = match proto::parse(text.as_str()) {
                 Ok(Inbound::Depth(d)) => d,
                 Ok(_) => continue,
-                Err(e) => return SessionEnd { reason: e.to_string(), was_synced },
+                Err(e) => {
+                    return SessionEnd {
+                        reason: e.to_string(),
+                        was_synced,
+                    }
+                }
             };
             let outcome = {
                 let mut guard = shared.book.write().unwrap();
@@ -373,6 +413,7 @@ async fn session(cfg: &ClientConfig, shared: &Shared, emitter: &mut Emitter, mut
                     *shared.book.write().unwrap() = None;
                     shared.stats.synced.store(false, Ordering::Relaxed);
                     shared.stats.resyncs.fetch_add(1, Ordering::Relaxed);
+                    failed_syncs += 1;
                     emitter.send(shared, EventKind::Resyncing(e.to_string()), None, 0);
                     continue 'resync;
                 }

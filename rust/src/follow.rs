@@ -84,10 +84,11 @@ pub fn delta_position(
         return Err(FollowError::BadConfig);
     }
     let change = leader_after as i128 - leader_before as i128;
-    if change == 0 {
-        return Err(FollowError::NoChange);
-    }
-    let side = if change > 0 { OrderSide::Buy } else { OrderSide::Sell };
+    let side = match change.signum() {
+        1 => OrderSide::Buy,
+        -1 => OrderSide::Sell,
+        _ => return Err(FollowError::NoChange),
+    };
     let wanted_units = (change.unsigned_abs())
         .checked_mul(cfg.ratio_num as u128)
         .ok_or(FollowError::Overflow)?
@@ -133,7 +134,9 @@ pub fn delta_position(
             break;
         }
         let take = remaining.min(l.qty.0 as u128);
-        notional = notional.checked_add(take * l.price.0 as u128).ok_or(FollowError::Overflow)?;
+        notional = notional
+            .checked_add(take * l.price.0 as u128)
+            .ok_or(FollowError::Overflow)?;
         filled += take;
         remaining -= take;
     }
@@ -181,7 +184,12 @@ mod tests {
         .unwrap()
     }
     fn cfg(bps: u32) -> FollowConfig {
-        FollowConfig { ratio_num: 1, ratio_den: 1, max_slippage_bps: bps, min_qty: Fixed(1) }
+        FollowConfig {
+            ratio_num: 1,
+            ratio_den: 1,
+            max_slippage_bps: bps,
+            min_qty: Fixed(1),
+        }
     }
     fn units(s: &str) -> i64 {
         f(s).0 as i64
@@ -242,10 +250,19 @@ mod tests {
 
     #[test]
     fn the_ratio_scales_the_size_and_floors_it() {
-        let c = FollowConfig { ratio_num: 1, ratio_den: 3, max_slippage_bps: 50, min_qty: Fixed(1) };
+        let c = FollowConfig {
+            ratio_num: 1,
+            ratio_den: 3,
+            max_slippage_bps: 50,
+            min_qty: Fixed(1),
+        };
         let o = delta_position(0, 10, &book(), &c).unwrap(); // 10 units / 3 = 3 units
         assert_eq!(o.wanted_qty, Fixed(3));
-        let c = FollowConfig { ratio_num: 5, ratio_den: 1, ..c };
+        let c = FollowConfig {
+            ratio_num: 5,
+            ratio_den: 1,
+            ..c
+        };
         let o = delta_position(0, units("0.1"), &book(), &c).unwrap();
         assert_eq!(o.wanted_qty, f("0.5"));
     }
@@ -253,15 +270,47 @@ mod tests {
     #[test]
     fn no_change_a_dust_size_a_bad_config_and_an_empty_side_are_refused() {
         assert_eq!(delta_position(7, 7, &book(), &cfg(50)), Err(FollowError::NoChange));
-        let c = FollowConfig { min_qty: f("1"), ..cfg(50) };
-        assert_eq!(delta_position(0, units("0.5"), &book(), &c), Err(FollowError::BelowMinimum { wanted: f("0.5") }));
-        let c = FollowConfig { ratio_den: 0, ..cfg(50) };
+        let c = FollowConfig {
+            min_qty: f("1"),
+            ..cfg(50)
+        };
+        assert_eq!(
+            delta_position(0, units("0.5"), &book(), &c),
+            Err(FollowError::BelowMinimum { wanted: f("0.5") })
+        );
+        let c = FollowConfig {
+            ratio_den: 0,
+            ..cfg(50)
+        };
         assert_eq!(delta_position(0, 5, &book(), &c), Err(FollowError::BadConfig));
         assert_eq!(delta_position(0, 5, &book(), &cfg(10_000)), Err(FollowError::BadConfig));
         let empty_asks = OrderBook::from_snapshot(1, &[lv("1", "1")], &[]).unwrap();
         assert_eq!(delta_position(0, 5, &empty_asks, &cfg(50)), Err(FollowError::EmptyBook));
         // A sell still works on that book.
         assert!(delta_position(5, 0, &empty_asks, &cfg(50)).is_ok());
+    }
+
+    #[test]
+    fn a_size_equal_to_the_minimum_is_sent() {
+        let c = FollowConfig {
+            min_qty: f("0.5"),
+            ..cfg(50)
+        };
+        assert!(delta_position(0, units("0.5"), &book(), &c).is_ok());
+        assert!(delta_position(0, units("0.49999999"), &book(), &c).is_err());
+    }
+
+    #[test]
+    fn every_error_says_what_it_is() {
+        for (e, word) in [
+            (FollowError::NoChange, "did not change"),
+            (FollowError::BadConfig, "denominator"),
+            (FollowError::BelowMinimum { wanted: Fixed(5) }, "below the minimum"),
+            (FollowError::EmptyBook, "empty"),
+            (FollowError::Overflow, "fit"),
+        ] {
+            assert!(e.to_string().contains(word), "{e:?} printed {:?}", e.to_string());
+        }
     }
 
     #[test]
@@ -274,7 +323,12 @@ mod tests {
 
     #[test]
     fn a_size_that_does_not_fit_overflows_cleanly() {
-        let c = FollowConfig { ratio_num: u64::MAX, ratio_den: 1, max_slippage_bps: 50, min_qty: Fixed(1) };
+        let c = FollowConfig {
+            ratio_num: u64::MAX,
+            ratio_den: 1,
+            max_slippage_bps: 50,
+            min_qty: Fixed(1),
+        };
         assert_eq!(delta_position(0, i64::MAX, &book(), &c), Err(FollowError::Overflow));
     }
 }

@@ -23,7 +23,11 @@ pub enum Inbound {
     Depth(Delta),
     Snapshot(SnapshotReply),
     /// A reply to one of our requests with a status other than 200.
-    Failure { id: String, status: i64, message: String },
+    Failure {
+        id: String,
+        status: i64,
+        message: String,
+    },
     /// Valid JSON that is none of the above: ignored.
     Other,
 }
@@ -44,12 +48,21 @@ fn err<T>(msg: impl Into<String>) -> Result<T, ProtoError> {
 }
 
 fn levels(v: &Value, what: &str) -> Result<Vec<Level>, ProtoError> {
-    let arr = v.as_array().ok_or_else(|| ProtoError(format!("{what} is not an array")))?;
+    let arr = v
+        .as_array()
+        .ok_or_else(|| ProtoError(format!("{what} is not an array")))?;
     let mut out = Vec::with_capacity(arr.len());
     for pair in arr {
-        let p = pair.as_array().filter(|p| p.len() >= 2).ok_or_else(|| ProtoError(format!("{what}: bad level")))?;
-        let price = p[0].as_str().ok_or_else(|| ProtoError(format!("{what}: price is not a string")))?;
-        let qty = p[1].as_str().ok_or_else(|| ProtoError(format!("{what}: size is not a string")))?;
+        let p = pair
+            .as_array()
+            .filter(|p| p.len() >= 2)
+            .ok_or_else(|| ProtoError(format!("{what}: bad level")))?;
+        let price = p[0]
+            .as_str()
+            .ok_or_else(|| ProtoError(format!("{what}: price is not a string")))?;
+        let qty = p[1]
+            .as_str()
+            .ok_or_else(|| ProtoError(format!("{what}: size is not a string")))?;
         out.push(Level {
             price: Fixed::parse(price).map_err(|e| ProtoError(e.to_string()))?,
             qty: Fixed::parse(qty).map_err(|e| ProtoError(e.to_string()))?,
@@ -61,11 +74,22 @@ fn levels(v: &Value, what: &str) -> Result<Vec<Level>, ProtoError> {
 pub fn parse(text: &str) -> Result<Inbound, ProtoError> {
     let v: Value = serde_json::from_str(text).map_err(|e| ProtoError(format!("bad json: {e}")))?;
     if v.get("e").and_then(Value::as_str) == Some("depthUpdate") {
-        let first = v.get("U").and_then(Value::as_u64).ok_or_else(|| ProtoError("depthUpdate without U".into()))?;
-        let last = v.get("u").and_then(Value::as_u64).ok_or_else(|| ProtoError("depthUpdate without u".into()))?;
+        let first = v
+            .get("U")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| ProtoError("depthUpdate without U".into()))?;
+        let last = v
+            .get("u")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| ProtoError("depthUpdate without u".into()))?;
         let bids = levels(v.get("b").unwrap_or(&Value::Null), "b")?;
         let asks = levels(v.get("a").unwrap_or(&Value::Null), "a")?;
-        return Ok(Inbound::Depth(Delta { first_id: first, final_id: last, bids, asks }));
+        return Ok(Inbound::Depth(Delta {
+            first_id: first,
+            final_id: last,
+            bids,
+            asks,
+        }));
     }
     if let Some(status) = v.get("status").and_then(Value::as_i64) {
         let id = match v.get("id") {
@@ -74,17 +98,28 @@ pub fn parse(text: &str) -> Result<Inbound, ProtoError> {
             None => return err("reply without id"),
         };
         if status != 200 {
-            let message = v.pointer("/error/msg").and_then(Value::as_str).unwrap_or("").to_string();
+            let message = v
+                .pointer("/error/msg")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             return Ok(Inbound::Failure { id, status, message });
         }
-        let r = v.get("result").ok_or_else(|| ProtoError("reply without result".into()))?;
+        let r = v
+            .get("result")
+            .ok_or_else(|| ProtoError("reply without result".into()))?;
         let last_update_id = r
             .get("lastUpdateId")
             .and_then(Value::as_u64)
             .ok_or_else(|| ProtoError("reply without lastUpdateId".into()))?;
         let bids = levels(r.get("bids").unwrap_or(&Value::Null), "bids")?;
         let asks = levels(r.get("asks").unwrap_or(&Value::Null), "asks")?;
-        return Ok(Inbound::Snapshot(SnapshotReply { id, last_update_id, bids, asks }));
+        return Ok(Inbound::Snapshot(SnapshotReply {
+            id,
+            last_update_id,
+            bids,
+            asks,
+        }));
     }
     Ok(Inbound::Other)
 }
@@ -136,8 +171,14 @@ mod tests {
         let d = Delta {
             first_id: 157,
             final_id: 160,
-            bids: vec![Level { price: Fixed::parse("0.0024").unwrap(), qty: Fixed::parse("10").unwrap() }],
-            asks: vec![Level { price: Fixed::parse("0.0026").unwrap(), qty: Fixed::ZERO }],
+            bids: vec![Level {
+                price: Fixed::parse("0.0024").unwrap(),
+                qty: Fixed::parse("10").unwrap(),
+            }],
+            asks: vec![Level {
+                price: Fixed::parse("0.0026").unwrap(),
+                qty: Fixed::ZERO,
+            }],
         };
         let text = depth_update_json("BNBBTC", 1_672_515_782_136, &d);
         assert_eq!(parse(&text).unwrap(), Inbound::Depth(d));
@@ -146,7 +187,9 @@ mod tests {
     #[test]
     fn the_documented_example_event_parses() {
         let text = r#"{"e":"depthUpdate","E":1672515782136,"s":"BNBBTC","U":157,"u":160,"b":[["0.0024","10"]],"a":[["0.0026","100"]]}"#;
-        let Inbound::Depth(d) = parse(text).unwrap() else { panic!("not a depth update") };
+        let Inbound::Depth(d) = parse(text).unwrap() else {
+            panic!("not a depth update")
+        };
         assert_eq!((d.first_id, d.final_id), (157, 160));
         assert_eq!(d.asks[0].qty, Fixed::parse("100").unwrap());
     }
@@ -156,14 +199,31 @@ mod tests {
         let text = snapshot_reply_json("req-1", 99, &[], &[]);
         assert_eq!(
             parse(&text).unwrap(),
-            Inbound::Snapshot(SnapshotReply { id: "req-1".into(), last_update_id: 99, bids: vec![], asks: vec![] })
+            Inbound::Snapshot(SnapshotReply {
+                id: "req-1".into(),
+                last_update_id: 99,
+                bids: vec![],
+                asks: vec![]
+            })
         );
     }
 
     #[test]
     fn a_failure_reply_keeps_its_status_and_message() {
         let text = failure_reply_json("r", 429, "slow down");
-        assert_eq!(parse(&text).unwrap(), Inbound::Failure { id: "r".into(), status: 429, message: "slow down".into() });
+        assert_eq!(
+            parse(&text).unwrap(),
+            Inbound::Failure {
+                id: "r".into(),
+                status: 429,
+                message: "slow down".into()
+            }
+        );
+    }
+
+    #[test]
+    fn a_protocol_error_prints_its_message() {
+        assert_eq!(ProtoError("bad thing".into()).to_string(), "protocol error: bad thing");
     }
 
     #[test]

@@ -33,16 +33,27 @@ impl Fixed {
         if !int_part.bytes().all(|b| b.is_ascii_digit()) || !frac_part.bytes().all(|b| b.is_ascii_digit()) {
             return Err(bad());
         }
-        let (kept, extra) = if frac_part.len() > 8 { frac_part.split_at(8) } else { (frac_part, "") };
+        let (kept, extra) = frac_part.split_at(frac_part.len().min(8));
         if extra.bytes().any(|b| b != b'0') {
             return Err(bad());
         }
-        let whole: u64 = if int_part.is_empty() { 0 } else { int_part.parse().map_err(|_| bad())? };
-        let mut frac: u64 = if kept.is_empty() { 0 } else { kept.parse().map_err(|_| bad())? };
+        let whole: u64 = if int_part.is_empty() {
+            0
+        } else {
+            int_part.parse().map_err(|_| bad())?
+        };
+        let mut frac: u64 = if kept.is_empty() {
+            0
+        } else {
+            kept.parse().map_err(|_| bad())?
+        };
         for _ in kept.len()..8 {
             frac *= 10;
         }
-        let units = whole.checked_mul(SCALE).and_then(|w| w.checked_add(frac)).ok_or_else(bad)?;
+        let units = whole
+            .checked_mul(SCALE)
+            .and_then(|w| w.checked_add(frac))
+            .ok_or_else(bad)?;
         Ok(Fixed(units))
     }
 
@@ -98,7 +109,11 @@ pub enum ApplyError {
     Gap { expected_first: u64, got_first: u64 },
     /// The delta starts at or below the book's id but ends above it, after the first delta. It
     /// cannot follow a delta that ended at the book's id.
-    Overlap { book_id: u64, delta_first: u64, delta_final: u64 },
+    Overlap {
+        book_id: u64,
+        delta_first: u64,
+        delta_final: u64,
+    },
     /// `first_id` is above `final_id`.
     Malformed { first_id: u64, final_id: u64 },
     /// Applying the delta would leave the best bid at or above the best ask. The book is unchanged.
@@ -111,11 +126,21 @@ impl fmt::Display for ApplyError {
             ApplyError::Stale { book_id, delta_final } => {
                 write!(f, "stale delta ending at {delta_final}, book is at {book_id}")
             }
-            ApplyError::Gap { expected_first, got_first } => {
+            ApplyError::Gap {
+                expected_first,
+                got_first,
+            } => {
                 write!(f, "gap: expected a delta starting at {expected_first}, got {got_first}")
             }
-            ApplyError::Overlap { book_id, delta_first, delta_final } => {
-                write!(f, "overlap: delta {delta_first}..{delta_final} straddles the book id {book_id}")
+            ApplyError::Overlap {
+                book_id,
+                delta_first,
+                delta_final,
+            } => {
+                write!(
+                    f,
+                    "overlap: delta {delta_first}..{delta_final} straddles the book id {book_id}"
+                )
             }
             ApplyError::Malformed { first_id, final_id } => {
                 write!(f, "malformed delta: first {first_id} is above final {final_id}")
@@ -202,8 +227,19 @@ impl OrderBook {
 
     /// The best `n` levels per side, bids from the highest price down and asks from the lowest up.
     pub fn depth(&self, n: usize) -> (Vec<Level>, Vec<Level>) {
-        let bids = self.bids.iter().rev().take(n).map(|(p, q)| Level { price: *p, qty: *q }).collect();
-        let asks = self.asks.iter().take(n).map(|(p, q)| Level { price: *p, qty: *q }).collect();
+        let bids = self
+            .bids
+            .iter()
+            .rev()
+            .take(n)
+            .map(|(p, q)| Level { price: *p, qty: *q })
+            .collect();
+        let asks = self
+            .asks
+            .iter()
+            .take(n)
+            .map(|(p, q)| Level { price: *p, qty: *q })
+            .collect();
         (bids, asks)
     }
 
@@ -229,21 +265,33 @@ impl OrderBook {
     /// Applies one delta. On any error the book is exactly as it was before the call.
     pub fn apply(&mut self, d: &Delta) -> Result<(), ApplyError> {
         if d.first_id > d.final_id {
-            return Err(ApplyError::Malformed { first_id: d.first_id, final_id: d.final_id });
+            return Err(ApplyError::Malformed {
+                first_id: d.first_id,
+                final_id: d.final_id,
+            });
         }
         if d.final_id <= self.last_id {
-            return Err(ApplyError::Stale { book_id: self.last_id, delta_final: d.final_id });
+            return Err(ApplyError::Stale {
+                book_id: self.last_id,
+                delta_final: d.final_id,
+            });
         }
         let next = self.last_id + 1;
         match self.phase {
             Phase::AfterSnapshot => {
                 if d.first_id > next {
-                    return Err(ApplyError::Gap { expected_first: next, got_first: d.first_id });
+                    return Err(ApplyError::Gap {
+                        expected_first: next,
+                        got_first: d.first_id,
+                    });
                 }
             }
             Phase::Live => {
                 if d.first_id > next {
-                    return Err(ApplyError::Gap { expected_first: next, got_first: d.first_id });
+                    return Err(ApplyError::Gap {
+                        expected_first: next,
+                        got_first: d.first_id,
+                    });
                 }
                 if d.first_id < next {
                     return Err(ApplyError::Overlap {
@@ -314,7 +362,12 @@ mod tests {
         .unwrap()
     }
     fn delta(first: u64, last: u64, bids: Vec<Level>, asks: Vec<Level>) -> Delta {
-        Delta { first_id: first, final_id: last, bids, asks }
+        Delta {
+            first_id: first,
+            final_id: last,
+            bids,
+            asks,
+        }
     }
 
     #[test]
@@ -327,6 +380,11 @@ mod tests {
         assert!(Fixed::parse("").is_err());
         assert!(Fixed::parse("-1").is_err());
         assert!(Fixed::parse("1e3").is_err());
+        assert!(Fixed::parse("+1.5").is_err());
+        assert!(Fixed::parse("1.+5").is_err());
+        assert!(Fixed::parse("1.5x").is_err());
+        assert!(Fixed::parse(".").is_err());
+        assert_eq!(f(".5"), Fixed(50_000_000));
         assert!(Fixed::parse("99999999999999999999").is_err());
         assert_eq!(f("12.5").to_string(), "12.50000000");
     }
@@ -341,6 +399,7 @@ mod tests {
         assert_eq!(asks, vec![lv("100.00", "1"), lv("100.50", "2")]);
         assert_eq!(b.depth(0), (vec![], vec![]));
         assert_eq!(b.depth(50).0.len(), 3);
+        assert_eq!((b.bid_levels(), b.ask_levels()), (3, 3));
         assert_eq!(b.spread().unwrap(), f("1.00"));
     }
 
@@ -356,7 +415,12 @@ mod tests {
         let before = b.clone();
         // A bid at 100.25 crosses the best ask at 100.00, and the same delta also removes a level
         // that must come back when the delta is undone.
-        let d = delta(101, 101, vec![lv("100.25", "1"), lv("98.00", "0")], vec![lv("100.50", "7")]);
+        let d = delta(
+            101,
+            101,
+            vec![lv("100.25", "1"), lv("98.00", "0")],
+            vec![lv("100.50", "7")],
+        );
         let err = b.apply(&d).unwrap_err();
         assert!(matches!(err, ApplyError::Crossed { .. }));
         assert_eq!(b, before);
@@ -377,7 +441,8 @@ mod tests {
     #[test]
     fn a_size_replaces_it_does_not_add() {
         let mut b = base();
-        b.apply(&delta(101, 101, vec![lv("99.00", "9")], vec![lv("100.00", "4")])).unwrap();
+        b.apply(&delta(101, 101, vec![lv("99.00", "9")], vec![lv("100.00", "4")]))
+            .unwrap();
         assert_eq!(b.best_bid().unwrap().qty, f("9"));
         assert_eq!(b.best_ask().unwrap().qty, f("4"));
     }
@@ -387,7 +452,13 @@ mod tests {
         let mut b = base();
         let before = b.clone();
         let err = b.apply(&delta(90, 100, vec![lv("99.00", "5")], vec![])).unwrap_err();
-        assert_eq!(err, ApplyError::Stale { book_id: 100, delta_final: 100 });
+        assert_eq!(
+            err,
+            ApplyError::Stale {
+                book_id: 100,
+                delta_final: 100
+            }
+        );
         assert_eq!(b, before);
     }
 
@@ -408,7 +479,14 @@ mod tests {
         b.apply(&delta(101, 103, vec![lv("99.00", "5")], vec![])).unwrap();
         let before = b.clone();
         let err = b.apply(&delta(103, 105, vec![lv("99.00", "1")], vec![])).unwrap_err();
-        assert_eq!(err, ApplyError::Overlap { book_id: 103, delta_first: 103, delta_final: 105 });
+        assert_eq!(
+            err,
+            ApplyError::Overlap {
+                book_id: 103,
+                delta_first: 103,
+                delta_final: 105
+            }
+        );
         assert_eq!(b, before);
     }
 
@@ -416,10 +494,22 @@ mod tests {
     fn a_gap_is_refused_and_names_what_was_expected() {
         let mut b = base();
         let err = b.apply(&delta(103, 103, vec![lv("99.00", "5")], vec![])).unwrap_err();
-        assert_eq!(err, ApplyError::Gap { expected_first: 101, got_first: 103 });
+        assert_eq!(
+            err,
+            ApplyError::Gap {
+                expected_first: 101,
+                got_first: 103
+            }
+        );
         b.apply(&delta(101, 101, vec![], vec![])).unwrap();
         let err = b.apply(&delta(103, 104, vec![], vec![])).unwrap_err();
-        assert_eq!(err, ApplyError::Gap { expected_first: 102, got_first: 103 });
+        assert_eq!(
+            err,
+            ApplyError::Gap {
+                expected_first: 102,
+                got_first: 103
+            }
+        );
     }
 
     #[test]
@@ -437,7 +527,13 @@ mod tests {
     fn a_malformed_delta_is_refused() {
         let mut b = base();
         let err = b.apply(&delta(105, 101, vec![], vec![])).unwrap_err();
-        assert_eq!(err, ApplyError::Malformed { first_id: 105, final_id: 101 });
+        assert_eq!(
+            err,
+            ApplyError::Malformed {
+                first_id: 105,
+                final_id: 101
+            }
+        );
     }
 
     #[test]
@@ -461,8 +557,68 @@ mod tests {
         let mut b = base();
         // The ask at 100.00 is removed in the same delta that adds a bid at 100.25: whole delta is applied
         // atomically, and the final book is not crossed (best ask is now 100.50).
-        b.apply(&delta(101, 101, vec![lv("100.25", "1")], vec![lv("100.00", "0")])).unwrap();
+        b.apply(&delta(101, 101, vec![lv("100.25", "1")], vec![lv("100.00", "0")]))
+            .unwrap();
         assert_eq!(b.best_bid().unwrap().price, f("100.25"));
         assert_eq!(b.best_ask().unwrap().price, f("100.50"));
+    }
+
+    #[test]
+    fn every_error_says_what_it_is() {
+        let cases: Vec<(String, &str)> = vec![
+            (ParseError("x".into()).to_string(), "not a decimal"),
+            (
+                SnapshotError::Crossed {
+                    bid: Fixed(2),
+                    ask: Fixed(1),
+                }
+                .to_string(),
+                "crossed",
+            ),
+            (
+                ApplyError::Stale {
+                    book_id: 5,
+                    delta_final: 4,
+                }
+                .to_string(),
+                "stale",
+            ),
+            (
+                ApplyError::Gap {
+                    expected_first: 5,
+                    got_first: 9,
+                }
+                .to_string(),
+                "gap",
+            ),
+            (
+                ApplyError::Overlap {
+                    book_id: 5,
+                    delta_first: 4,
+                    delta_final: 6,
+                }
+                .to_string(),
+                "overlap",
+            ),
+            (
+                ApplyError::Malformed {
+                    first_id: 9,
+                    final_id: 1,
+                }
+                .to_string(),
+                "malformed",
+            ),
+            (
+                ApplyError::Crossed {
+                    bid: Fixed(2),
+                    ask: Fixed(1),
+                }
+                .to_string(),
+                "crossed book",
+            ),
+        ];
+        for (text, word) in cases {
+            assert!(text.contains(word), "{text:?} should contain {word:?}");
+        }
     }
 }

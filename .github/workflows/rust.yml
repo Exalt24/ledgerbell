@@ -1,0 +1,39 @@
+name: Rust CI
+
+# Its own workflow so a path filter can keep it off Python-only pushes. Linux only: the repo shares one
+# monthly Actions minutes pool with every private repo, and Windows jobs bill at double.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust.yml"
+  pull_request:
+    paths:
+      - "rust/**"
+      - ".github/workflows/rust.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bookwatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt && rustup default stable
+      - name: Format
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        run: cargo test

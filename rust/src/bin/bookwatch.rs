@@ -16,7 +16,10 @@ fn usage() -> ! {
 }
 
 fn flag(args: &[String], name: &str) -> Option<String> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+    args.iter()
+        .position(|a| a == name)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }
 
 fn fmt_level(l: Option<Level>) -> String {
@@ -68,13 +71,25 @@ async fn main() {
             let port = flag(&args, "--port").unwrap_or_else(|| "9001".into());
             let rate: u32 = flag(&args, "--rate").and_then(|r| r.parse().ok()).unwrap_or(50);
             let symbol = flag(&args, "--symbol").unwrap_or_else(|| "BTCUSDT".into());
-            let cfg = StandInConfig { symbol, rate_per_sec: rate, ..StandInConfig::default() };
-            let ex = StandIn::start_on(&format!("127.0.0.1:{port}"), cfg).await.expect("bind");
-            println!("stand-in exchange (not Binance) at {}  {} deltas per second", ex.url(), rate);
+            let cfg = StandInConfig {
+                symbol,
+                rate_per_sec: rate,
+                ..StandInConfig::default()
+            };
+            let ex = StandIn::start_on(&format!("127.0.0.1:{port}"), cfg)
+                .await
+                .expect("bind");
+            println!(
+                "stand-in exchange (not Binance) at {}  {} deltas per second",
+                ex.url(),
+                rate
+            );
             let _ = tokio::signal::ctrl_c().await;
         }
         Some("watch") => {
-            let (Some(url), Some(symbol)) = (args.get(1), args.get(2)) else { usage() };
+            let (Some(url), Some(symbol)) = (args.get(1), args.get(2)) else {
+                usage()
+            };
             let depth: usize = flag(&args, "--depth").and_then(|d| d.parse().ok()).unwrap_or(3);
             let c = spawn(ClientConfig::new(url.clone(), symbol.clone()));
             let mut tick = tokio::time::interval(Duration::from_secs(1));
@@ -101,8 +116,16 @@ async fn main() {
 }
 
 async fn demo() {
-    let ex = StandIn::start(StandInConfig { rate_per_sec: 400, ..StandInConfig::default() }).await.expect("bind");
-    println!("stand-in exchange (written from Binance's public docs, not Binance) on {}", ex.addr());
+    let ex = StandIn::start(StandInConfig {
+        rate_per_sec: 400,
+        ..StandInConfig::default()
+    })
+    .await
+    .expect("bind");
+    println!(
+        "stand-in exchange (written from Binance's public docs, not Binance) on {}",
+        ex.addr()
+    );
     let mut cfg = ClientConfig::new(ex.url(), ex.symbol());
     cfg.backoff_base = Duration::from_millis(100);
     cfg.record_applied = true;

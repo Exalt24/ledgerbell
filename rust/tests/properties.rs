@@ -9,7 +9,10 @@ use proptest::prelude::*;
 const UNIT: u64 = 1_000_000; // one price step in fixed point units
 
 fn lvl(p: u64, q: u64) -> Level {
-    Level { price: Fixed(p * UNIT), qty: Fixed(q * UNIT) }
+    Level {
+        price: Fixed(p * UNIT),
+        qty: Fixed(q * UNIT),
+    }
 }
 
 /// One update: (is_bid, price step, size). Bids live in steps 1..=50 and asks in 51..=100, so no stream of

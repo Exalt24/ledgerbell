@@ -106,8 +106,25 @@ impl Exchange {
         }
     }
     fn levels(&self, limit: usize) -> (Vec<Level>, Vec<Level>) {
-        let bids = self.bids.iter().rev().take(limit).map(|(p, q)| Level { price: Fixed(*p), qty: Fixed(*q) }).collect();
-        let asks = self.asks.iter().take(limit).map(|(p, q)| Level { price: Fixed(*p), qty: Fixed(*q) }).collect();
+        let bids = self
+            .bids
+            .iter()
+            .rev()
+            .take(limit)
+            .map(|(p, q)| Level {
+                price: Fixed(*p),
+                qty: Fixed(*q),
+            })
+            .collect();
+        let asks = self
+            .asks
+            .iter()
+            .take(limit)
+            .map(|(p, q)| Level {
+                price: Fixed(*p),
+                qty: Fixed(*q),
+            })
+            .collect();
         (bids, asks)
     }
 }
@@ -121,6 +138,12 @@ struct State {
     exchange: Mutex<Exchange>,
     frames: broadcast::Sender<Arc<Frame>>,
     kill: watch::Sender<u64>,
+    close: watch::Sender<u64>,
+    stray_replies: AtomicBool,
+    reply_after_next_delta: AtomicBool,
+    fail_snapshots: AtomicU32,
+    stale_snapshots: AtomicBool,
+    request_ids: Mutex<Vec<(u64, String)>>,
     drop_budget: AtomicU32,
     silent: AtomicBool,
     paused: AtomicBool,
@@ -145,21 +168,34 @@ impl StandIn {
     pub async fn start_on(bind: &str, cfg: StandInConfig) -> std::io::Result<StandIn> {
         let listener = TcpListener::bind(bind).await?;
         let addr = listener.local_addr()?;
-        let mut ex = Exchange { bids: BTreeMap::new(), asks: BTreeMap::new(), last_id: 1_000, rng: SplitMix(cfg.seed) };
+        let mut ex = Exchange {
+            bids: BTreeMap::new(),
+            asks: BTreeMap::new(),
+            last_id: 1_000,
+            rng: SplitMix(cfg.seed),
+        };
         let half = cfg.spread_ticks / 2;
         for i in 0..cfg.initial_levels as u64 {
             let q_bid = 1_000_000 + ex.rng.below(9_000_000);
             let q_ask = 1_000_000 + ex.rng.below(9_000_000);
             ex.bids.insert(cfg.mid.0 - (half + i) * cfg.tick.0, q_bid);
-            ex.asks.insert(cfg.mid.0 + (cfg.spread_ticks - half + i) * cfg.tick.0, q_ask);
+            ex.asks
+                .insert(cfg.mid.0 + (cfg.spread_ticks - half + i) * cfg.tick.0, q_ask);
         }
         let (frames, _) = broadcast::channel(65_536);
         let (kill, _) = watch::channel(0u64);
+        let (close, _) = watch::channel(0u64);
         let state = Arc::new(State {
             cfg: cfg.clone(),
             exchange: Mutex::new(ex),
             frames,
             kill,
+            close,
+            stray_replies: AtomicBool::new(false),
+            reply_after_next_delta: AtomicBool::new(false),
+            fail_snapshots: AtomicU32::new(0),
+            stale_snapshots: AtomicBool::new(false),
+            request_ids: Mutex::new(Vec::new()),
             drop_budget: AtomicU32::new(0),
             silent: AtomicBool::new(false),
             paused: AtomicBool::new(false),
@@ -172,13 +208,15 @@ impl StandIn {
         let st = Arc::clone(&state);
         tasks.push(tokio::spawn(async move {
             loop {
-                let Ok((stream, _)) = listener.accept().await else { continue };
+                let Ok((stream, _)) = listener.accept().await else {
+                    continue;
+                };
                 if !st.accepting.load(Ordering::Relaxed) {
                     drop(stream);
                     continue;
                 }
-                st.connections.fetch_add(1, Ordering::Relaxed);
-                tokio::spawn(handle_conn(Arc::clone(&st), stream));
+                let conn_no = st.connections.fetch_add(1, Ordering::Relaxed) + 1;
+                tokio::spawn(handle_conn(Arc::clone(&st), stream, conn_no));
             }
         }));
         if cfg.rate_per_sec > 0 {
@@ -220,7 +258,11 @@ impl StandIn {
         let mut undo: Vec<(bool, u64, Option<u64>)> = Vec::with_capacity(bids.len() + asks.len());
         for (is_bid, levels) in [(true, bids), (false, asks)] {
             for l in levels {
-                let old = if is_bid { ex.bids.get(&l.price.0).copied() } else { ex.asks.get(&l.price.0).copied() };
+                let old = if is_bid {
+                    ex.bids.get(&l.price.0).copied()
+                } else {
+                    ex.asks.get(&l.price.0).copied()
+                };
                 undo.push((is_bid, l.price.0, old));
                 ex.set(is_bid, l.price.0, l.qty.0);
             }
@@ -236,7 +278,12 @@ impl StandIn {
         let first = ex.last_id + 1;
         let fin = first;
         ex.last_id = fin;
-        let d = Delta { first_id: first, final_id: fin, bids: bids.to_vec(), asks: asks.to_vec() };
+        let d = Delta {
+            first_id: first,
+            final_id: fin,
+            bids: bids.to_vec(),
+            asks: asks.to_vec(),
+        };
         Ok(broadcast_delta(&self.state, &d))
     }
 
@@ -260,6 +307,57 @@ impl StandIn {
     /// Closes every open client connection without a close frame. New connections are still accepted.
     pub fn kill_connections(&self) {
         self.state.kill.send_modify(|g| *g += 1);
+    }
+
+    /// Sends a close frame to every open connection, then closes it: a polite end, unlike `kill_connections`.
+    pub fn close_connections(&self) {
+        self.state.close.send_modify(|g| *g += 1);
+    }
+
+    /// While true, every snapshot reply is preceded by two replies carrying some other request id: a snapshot of
+    /// an empty book and a failure. A client must match replies to its own request id and ignore these.
+    pub fn set_stray_replies(&self, on: bool) {
+        self.state.stray_replies.store(on, Ordering::Relaxed);
+    }
+
+    /// While true, a snapshot reply is held back until the next delta has been sent to that connection, so the
+    /// client sees a delta before the reply it asked for (on Binance the stream and the request are two sockets
+    /// and can arrive in either order).
+    pub fn set_reply_after_next_delta(&self, on: bool) {
+        self.state.reply_after_next_delta.store(on, Ordering::Relaxed);
+    }
+
+    /// The next `n` snapshot requests are answered with a failure (status 500) carrying the request's own id.
+    pub fn fail_next_snapshots(&self, n: u32) {
+        self.state.fail_snapshots.store(n, Ordering::Relaxed);
+    }
+
+    /// While true, snapshots claim an update id 10,000 below the book's real one, so the stream that follows
+    /// always looks like it skipped ahead.
+    pub fn set_stale_snapshots(&self, on: bool) {
+        self.state.stale_snapshots.store(on, Ordering::Relaxed);
+    }
+
+    /// The ids of the snapshot requests received, in order.
+    pub fn request_ids(&self) -> Vec<String> {
+        self.state
+            .request_ids
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|(_, id)| id.clone())
+            .collect()
+    }
+
+    /// How many snapshot requests arrived on the `n`th connection (the first is 1).
+    pub fn requests_on_connection(&self, n: u64) -> usize {
+        self.state
+            .request_ids
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(c, _)| *c == n)
+            .count()
     }
 
     /// The next `n` deltas that a connection would have forwarded are silently dropped, so a client sees a gap.
@@ -309,7 +407,11 @@ fn broadcast_delta(st: &State, d: &Delta) -> Published {
     let sent_at = Instant::now();
     // No receivers is fine: nobody is connected.
     let _ = st.frames.send(Arc::new(Frame { text }));
-    Published { first_id: d.first_id, final_id: d.final_id, sent_at }
+    Published {
+        first_id: d.first_id,
+        final_id: d.final_id,
+        sent_at,
+    }
 }
 
 fn publish_random_on(st: &State) -> Published {
@@ -323,7 +425,11 @@ fn publish_random_on(st: &State) -> Published {
     for _ in 0..updates {
         let is_bid = ex.rng.below(2) == 0;
         let action = ex.rng.below(10);
-        let (own_len, other_best) = if is_bid { (ex.bids.len(), ex.best_ask()) } else { (ex.asks.len(), ex.best_bid()) };
+        let (own_len, other_best) = if is_bid {
+            (ex.bids.len(), ex.best_ask())
+        } else {
+            (ex.asks.len(), ex.best_bid())
+        };
         let (price, qty) = if action < 2 && own_len > 5 {
             // remove a random level
             let idx = ex.rng.below(own_len as u64) as usize;
@@ -336,7 +442,11 @@ fn publish_random_on(st: &State) -> Published {
             let q = 1_000_000 + ex.rng.below(9_000_000);
             match other_best {
                 Some(ob) => {
-                    let p = if is_bid { ob.saturating_sub(off * tick) } else { ob + off * tick };
+                    let p = if is_bid {
+                        ob.saturating_sub(off * tick)
+                    } else {
+                        ob + off * tick
+                    };
                     if p == 0 {
                         continue;
                     }
@@ -348,11 +458,16 @@ fn publish_random_on(st: &State) -> Published {
             // resize an existing level
             let idx = ex.rng.below(own_len.max(1) as u64) as usize;
             let side = if is_bid { &ex.bids } else { &ex.asks };
-            let Some(p) = side.keys().nth(idx).copied() else { continue };
+            let Some(p) = side.keys().nth(idx).copied() else {
+                continue;
+            };
             (p, 1_000_000 + ex.rng.below(9_000_000))
         };
         ex.set(is_bid, price, qty);
-        let l = Level { price: Fixed(price), qty: Fixed(qty) };
+        let l = Level {
+            price: Fixed(price),
+            qty: Fixed(qty),
+        };
         if is_bid {
             bids.push(l);
         } else {
@@ -363,9 +478,16 @@ fn publish_random_on(st: &State) -> Published {
     for is_bid in [true, false] {
         let len = if is_bid { ex.bids.len() } else { ex.asks.len() };
         if len > 400 {
-            let p = if is_bid { *ex.bids.keys().next().unwrap() } else { *ex.asks.keys().next_back().unwrap() };
+            let p = if is_bid {
+                *ex.bids.keys().next().unwrap()
+            } else {
+                *ex.asks.keys().next_back().unwrap()
+            };
             ex.set(is_bid, p, 0);
-            let l = Level { price: Fixed(p), qty: Fixed::ZERO };
+            let l = Level {
+                price: Fixed(p),
+                qty: Fixed::ZERO,
+            };
             if is_bid {
                 bids.push(l);
             } else {
@@ -374,20 +496,33 @@ fn publish_random_on(st: &State) -> Published {
         }
     }
     ex.last_id = fin;
-    let d = Delta { first_id: first, final_id: fin, bids, asks };
+    let d = Delta {
+        first_id: first,
+        final_id: fin,
+        bids,
+        asks,
+    };
     broadcast_delta(st, &d)
 }
 
-async fn handle_conn(st: Arc<State>, stream: TcpStream) {
-    let Ok(ws) = tokio_tungstenite::accept_async(stream).await else { return };
+async fn handle_conn(st: Arc<State>, stream: TcpStream, conn_no: u64) {
+    let Ok(ws) = tokio_tungstenite::accept_async(stream).await else {
+        return;
+    };
     let (mut sink, mut source) = ws.split();
     let mut frames = st.frames.subscribe();
     let mut kill = st.kill.subscribe();
+    let mut close = st.close.subscribe();
     let mut beat = interval(st.cfg.heartbeat_interval);
+    let mut held: Vec<String> = Vec::new();
     loop {
         tokio::select! {
             // Returning drops the socket: the peer sees the connection end with no close frame.
             _ = kill.changed() => return,
+            _ = close.changed() => {
+                let _ = sink.send(Message::Close(None)).await;
+                return;
+            }
             _ = beat.tick() => {
                 if !st.silent.load(Ordering::Relaxed) && sink.send(Message::Ping(Vec::new().into())).await.is_err() {
                     return;
@@ -405,6 +540,11 @@ async fn handle_conn(st: Arc<State>, stream: TcpStream) {
                     if sink.send(Message::text(f.text.clone())).await.is_err() {
                         return;
                     }
+                    for reply in held.drain(..) {
+                        if sink.send(Message::text(reply)).await.is_err() {
+                            return;
+                        }
+                    }
                 }
                 // A client that falls this far behind is disconnected, as a real exchange would.
                 Err(_) => return,
@@ -414,7 +554,12 @@ async fn handle_conn(st: Arc<State>, stream: TcpStream) {
                     if st.silent.load(Ordering::Relaxed) {
                         continue;
                     }
-                    if let Some(reply) = answer(&st, t.as_str()) {
+                    let replies = answer(&st, t.as_str(), conn_no);
+                    if st.reply_after_next_delta.load(Ordering::Relaxed) {
+                        held.extend(replies);
+                        continue;
+                    }
+                    for reply in replies {
                         if sink.send(Message::text(reply)).await.is_err() {
                             return;
                         }
@@ -430,24 +575,49 @@ async fn handle_conn(st: Arc<State>, stream: TcpStream) {
     }
 }
 
-fn answer(st: &State, text: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(text).ok()?;
-    let id = match v.get("id")? {
+fn answer(st: &State, text: &str, conn_no: u64) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(text) else {
+        return vec![];
+    };
+    let Some(idv) = v.get("id") else {
+        return vec![];
+    };
+    let id = match idv {
         serde_json::Value::String(s) => s.clone(),
         other => other.to_string(),
     };
     if v.get("method").and_then(|m| m.as_str()) != Some("depth") {
-        return Some(proto::failure_reply_json(&id, 400, "unknown method"));
+        return vec![proto::failure_reply_json(&id, 400, "unknown method")];
     }
     let symbol = v.pointer("/params/symbol").and_then(|s| s.as_str()).unwrap_or("");
     if !symbol.eq_ignore_ascii_case(&st.cfg.symbol) {
-        return Some(proto::failure_reply_json(&id, 400, "unknown symbol"));
+        return vec![proto::failure_reply_json(&id, 400, "unknown symbol")];
     }
-    let limit = v.pointer("/params/limit").and_then(|l| l.as_u64()).unwrap_or(100).clamp(1, 5000) as usize;
+    st.request_ids.lock().unwrap().push((conn_no, id.clone()));
+    let mut out = Vec::new();
+    if st.stray_replies.load(Ordering::Relaxed) {
+        out.push(proto::snapshot_reply_json("stray-snapshot", 1, &[], &[]));
+        out.push(proto::failure_reply_json("stray-failure", 500, "not for you"));
+    }
+    if take_one(&st.fail_snapshots) {
+        out.push(proto::failure_reply_json(&id, 500, "snapshot unavailable"));
+        return out;
+    }
+    let limit = v
+        .pointer("/params/limit")
+        .and_then(|l| l.as_u64())
+        .unwrap_or(100)
+        .clamp(1, 5000) as usize;
     let ex = st.exchange.lock().unwrap();
     let (bids, asks) = ex.levels(limit);
     st.snapshots_served.fetch_add(1, Ordering::Relaxed);
-    Some(proto::snapshot_reply_json(&id, ex.last_id, &bids, &asks))
+    let claimed = if st.stale_snapshots.load(Ordering::Relaxed) {
+        ex.last_id.saturating_sub(10_000)
+    } else {
+        ex.last_id
+    };
+    out.push(proto::snapshot_reply_json(&id, claimed, &bids, &asks));
+    out
 }
 
 /// Takes one from the counter if it is above zero. True if it did.
