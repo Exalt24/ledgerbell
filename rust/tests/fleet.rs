@@ -294,6 +294,12 @@ async fn the_worker_fails_over_to_the_second_address_when_the_first_stays_down()
     wait_until("all 80 commands", LIMIT, || last_acked(db.path()) == 80).await;
     assert!(w.stats.failovers.load(Ordering::Relaxed) >= 1);
     assert_eq!(w.stats.current_address.load(Ordering::Relaxed), 1);
+    // The worker stores its last ack before the C2 reads that ack off the socket, so the C2 side is waited for
+    // (on a slow runner the final ack was still in flight when this line used to read it: 79, not 80).
+    wait_until("B has seen the last ack", LIMIT, || {
+        b.worker("bot-fo").is_some_and(|i| i.last_acked == 80)
+    })
+    .await;
     let on_b = b.worker("bot-fo").unwrap();
     assert!(on_b.connections >= 1);
     assert_eq!(on_b.last_acked, 80);
