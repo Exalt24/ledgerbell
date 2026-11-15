@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package fleet.v1;
+
+// Every frame on the control socket is one Envelope. `seq` is a monotonic sequence id.
+//
+// C2 to worker: only `command` frames, and their seq is the command's position in that worker's
+// command log (1, 2, 3 ...), so a worker can tell a gap or a repeat from the number alone.
+// Worker to C2: hello, heartbeat, ack and replay frames, numbered 1, 2, 3 ... per connection.
+message Envelope {
+  uint64 seq = 1;
+  oneof body {
+    Hello hello = 2;
+    Heartbeat heartbeat = 3;
+    PositionDelta command = 4;
+    Ack ack = 5;
+    ReplayRequest replay = 6;
+  }
+}
+
+// First frame a worker sends on a connection. last_acked is the highest command seq whose result
+// the worker has stored, so the C2 resumes right after it.
+message Hello {
+  string worker_id = 1;
+  uint64 last_acked = 2;
+  string wallet = 3;
+}
+
+message Heartbeat {
+  uint64 unix_ms = 1;
+  uint64 orders_sent = 2;
+  uint64 fills_seen = 3;
+  uint64 last_acked = 4;
+}
+
+// A leader's position moved from leader_before to leader_after (signed counts of 1e-8 units) in
+// the outcome token `token_id`, at `leader_price` (eight decimals, as text).
+message PositionDelta {
+  string token_id = 1;
+  sint64 leader_before = 2;
+  sint64 leader_after = 3;
+  string leader_price = 4;
+}
+
+enum Outcome {
+  OUTCOME_UNSPECIFIED = 0;
+  OUTCOME_FILLED = 1;
+  OUTCOME_PARTIAL = 2;
+  OUTCOME_SKIPPED = 3;
+  OUTCOME_REJECTED = 4;
+}
+
+message Ack {
+  uint64 acked_seq = 1;
+  Outcome outcome = 2;
+  string detail = 3;
+}
+
+// The worker saw a gap: please send every command after `after_seq` again.
+message ReplayRequest {
+  uint64 after_seq = 1;
+}

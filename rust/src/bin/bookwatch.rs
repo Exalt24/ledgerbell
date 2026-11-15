@@ -8,9 +8,12 @@ use bookwatch::book::Level;
 use bookwatch::client::{spawn, ClientConfig, Handle};
 use bookwatch::standin::{StandIn, StandInConfig};
 
+#[path = "bookwatch/fleet.rs"]
+mod fleet;
+
 fn usage() -> ! {
     eprintln!(
-        "usage:\n  bookwatch standin [--port N] [--rate N] [--symbol BTCUSDT]\n  bookwatch watch <ws-url> <SYMBOL> [--depth N]\n  bookwatch demo"
+        "usage:\n  bookwatch standin [--port N] [--rate N] [--symbol BTCUSDT]\n  bookwatch watch <ws-url> <SYMBOL> [--depth N]\n  bookwatch demo\n  bookwatch c2 [--listen ADDR] [--id NAME] [--generate N] [--window N] [--skip-seq N]... [--dup-seq N]...\n  bookwatch worker --id NAME --c2 WS_URL [--c2 WS_URL]... --db FILE --clob HTTP_URL --key-file FILE [--crash-after-send SEQ]\n  bookwatch clob [--port N] [--latency-ms N] [--fill-plan 50,100]\n  bookwatch fleet-demo"
     );
     std::process::exit(2)
 }
@@ -20,6 +23,14 @@ fn flag(args: &[String], name: &str) -> Option<String> {
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1))
         .cloned()
+}
+
+pub(crate) fn flags(args: &[String], name: &str) -> Vec<String> {
+    args.iter()
+        .enumerate()
+        .filter(|(_, a)| a.as_str() == name)
+        .filter_map(|(i, _)| args.get(i + 1).cloned())
+        .collect()
 }
 
 fn fmt_level(l: Option<Level>) -> String {
@@ -111,6 +122,10 @@ async fn main() {
             }
         }
         Some("demo") => demo().await,
+        Some("c2") => fleet::c2(&args).await,
+        Some("worker") => fleet::worker(&args).await,
+        Some("clob") => fleet::clob(&args).await,
+        Some("fleet-demo") => fleet::demo().await,
         _ => usage(),
     }
 }

@@ -7,7 +7,15 @@
 //! * [`standin`]: the stand-in exchange.
 
 pub mod book;
+pub mod c2;
 pub mod client;
+pub mod clob;
+pub mod eip712;
 pub mod follow;
+pub mod guard;
 pub mod proto;
+pub mod seq;
 pub mod standin;
+pub mod store;
+pub mod wire;
+pub mod worker;
