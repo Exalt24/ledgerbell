@@ -17,7 +17,7 @@ prost = "0.14"
 rusqlite = { version = "0.37", features = ["bundled"] }
 sha3 = "0.10"
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
-getrandom = "0.3"
+getrandom = "0.4"
 
 [build-dependencies]
 prost-build = "0.14"
