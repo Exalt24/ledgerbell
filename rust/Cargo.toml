@@ -16,7 +16,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "json",
 prost = "0.14"
 rusqlite = { version = "0.41", features = ["bundled"] }
 sha3 = "0.12"
-k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+k256 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 getrandom = "0.4"
 
 [build-dependencies]
