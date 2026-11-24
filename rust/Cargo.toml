@@ -14,7 +14,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "ws", "query"] }
 prost = "0.14"
-rusqlite = { version = "0.41", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 sha3 = "0.12"
 k256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 getrandom = "0.4"
